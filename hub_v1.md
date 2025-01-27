@@ -23,7 +23,7 @@ local scriptEnabled = false
 local function processObject(object)
     local player = game.Players.LocalPlayer
     if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-        local targetPosition = player.Character.HumanoidRootPart.Position + Vector3.new(0, 5, 0) -- Перемещаем объект на 5 единиц выше головы игрока
+        local targetPosition = player.Character.HumanoidRootPart.Position + Vector3.new(0, 10, 0) -- Перемещаем объект на X единиц выше головы игрока
         
         if object:IsA("Model") and object.PrimaryPart then
             object:SetPrimaryPartCFrame(CFrame.new(targetPosition))
@@ -85,6 +85,7 @@ mainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0) -- Черный фон
 mainFrame.BorderSizePixel = 0
 mainFrame.Draggable = true
 mainFrame.Active = true
+mainFrame.Visible = true -- Изначально видимое окно
 mainFrame.Parent = screenGui
 
 local titleFrame = Instance.new("Frame")
@@ -145,10 +146,10 @@ button.MouseButton1Click:Connect(toggleScript)
 local function toggleGUIVisibility()
     if mainFrame.Visible then
         mainFrame.Visible = false
-        shadow.Visible = false
+        mainFrame.BackgroundTransparency = 1 -- Делаем фон полностью прозрачным
     else
         mainFrame.Visible = true
-        shadow.Visible = true
+        mainFrame.BackgroundTransparency = 0.5 -- Восстанавливаем полупрозрачность фона
     end
 end
 
@@ -160,15 +161,22 @@ game:GetService("UserInputService").InputBegan:Connect(function(input, gameProce
     end
 end)
 
--- Добавляем тень к основному окну
-local shadow = Instance.new("Frame")
-shadow.Size = mainFrame.Size + UDim2.new(0, 10, 0, 10)
-shadow.Position = mainFrame.Position - UDim2.new(0, 5, 0, 5)
-shadow.BackgroundTransparency = 0.8
-shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-shadow.Visible = true -- Изначально видимая тень
-shadow.Parent = screenGui
+-- Добавляем эффект тени через изменение цвета и прозрачности основного окна
+local shadowEffect = Instance.new("ImageLabel")
+shadowEffect.Size = UDim2.new(1, 20, 1, 20) -- Размер больше основного окна
+shadowEffect.Position = UDim2.new(0, -10, 0, -10) -- Смещение для создания эффекта тени
+shadowEffect.BackgroundTransparency = 1 -- Полностью прозрачный фон
+shadowEffect.Image = "" -- Без изображения
+shadowEffect.ImageColor3 = Color3.fromRGB(0, 0, 0) -- Черный цвет для эффекта тени
+shadowEffect.ImageTransparency = 0.8 -- Частичная прозрачность для эффекта тени
+shadowEffect.ZIndex = mainFrame.ZIndex - 1 -- Задаем Z-индекс ниже основного окна
+shadowEffect.Parent = mainFrame
 
+-- Обновление положения и размера эффекта тени при изменении основного окна
 mainFrame:GetPropertyChangedSignal("Position"):Connect(function()
-    shadow.Position = mainFrame.Position - UDim2.new(0, 5, 0, 5)
+    shadowEffect.Position = mainFrame.Position - UDim2.new(0, 10, 0, 10)
+end)
+
+mainFrame:GetPropertyChangedSignal("Size"):Connect(function()
+    shadowEffect.Size = mainFrame.Size + UDim2.new(0, 20, 0, 20)
 end)
