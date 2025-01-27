@@ -37,6 +37,7 @@ local function processObject(object)
         elseif object:IsA("BasePart") then
             object.CFrame = CFrame.new(targetPosition)
             object.CanCollide = false
+            object.Anchored = true
         end
     end
 end
