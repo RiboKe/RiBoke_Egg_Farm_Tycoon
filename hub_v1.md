@@ -26,7 +26,7 @@ local currentTransparency = 0
 local function processObject(object)
     local player = game.Players.LocalPlayer
     if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-        local targetPosition = player.Character.HumanoidRootPart.Position + Vector3.new(0, 5, 0) -- Перемещаем объект на 5 единиц выше головы игрока
+        local targetPosition = player.Character.HumanoidRootPart.Position + Vector3.new(0, 10, 0) -- Перемещаем объект на X единиц выше головы игрока
         
         if object:IsA("Model") and object.PrimaryPart then
             object:SetPrimaryPartCFrame(CFrame.new(targetPosition))
@@ -82,34 +82,50 @@ end
 local screenGui = Instance.new("ScreenGui")
 screenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
 
-local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 200, 0, 100)
-frame.Position = UDim2.new(0.5, -100, 0, 10) -- Позиция по центру сверху
-frame.BackgroundTransparency = 0.5
-frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-frame.Parent = screenGui
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 220, 0, 140)
+mainFrame.Position = UDim2.new(0.5, -110, 0.5, -70) -- Позиция по центру экрана
+mainFrame.BackgroundTransparency = 0.5
+mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+mainFrame.BorderSizePixel = 0
+mainFrame.Draggable = true
+mainFrame.Active = true
+mainFrame.Parent = screenGui
+
+local titleFrame = Instance.new("Frame")
+titleFrame.Size = UDim2.new(1, 0, 0, 20)
+titleFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+titleFrame.Parent = mainFrame
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, 0, 1, 0)
+titleLabel.Text = "Object Manager"
+titleLabel.BackgroundTransparency = 1
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.Parent = titleFrame
 
 local button = Instance.new("TextButton")
-button.Size = UDim2.new(0, 100, 0, 50)
-button.Position = UDim2.new(0, 0, 0, 0)
+button.Size = UDim2.new(0, 100, 0, 30)
+button.Position = UDim2.new(0.5, -50, 0, 30)
 button.Text = "Off"
-button.Parent = frame
+button.Parent = mainFrame
 
 local slider = Instance.new("Slider")
-slider.Size = UDim2.new(0, 200, 0, 50)
-slider.Position = UDim2.new(0, 0, 0, 50)
+slider.Size = UDim2.new(0.8, 0, 0, 30)
+slider.Position = UDim2.new(0.1, 0, 0, 70)
 slider.Min = 0
 slider.Max = 1
 slider.Value = 0
 slider.ShowDecimalValue = true
-slider.Parent = frame
+slider.Parent = mainFrame
 
 local valueLabel = Instance.new("TextLabel")
-valueLabel.Size = UDim2.new(0, 100, 0, 20)
-valueLabel.Position = UDim2.new(0.5, -50, 1, 0)
+valueLabel.Size = UDim2.new(0.8, 0, 0, 20)
+valueLabel.Position = UDim2.new(0.1, 0, 0, 100)
 valueLabel.Text = "Transparency: 0"
 valueLabel.BackgroundTransparency = 1
-valueLabel.Parent = slider
+valueLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+valueLabel.Parent = mainFrame
 
 -- Функция для переключения состояния скрипта
 local function toggleScript()
@@ -134,4 +150,16 @@ slider.Changed:Connect(function(property)
             handleObjects() -- Обрабатываем все существующие объекты при изменении прозрачности
         end
     end
+})
+
+-- Добавляем тень к основному окну
+local shadow = Instance.new("Frame")
+shadow.Size = mainFrame.Size + UDim2.new(0, 10, 0, 10)
+shadow.Position = mainFrame.Position - UDim2.new(0, 5, 0, 5)
+shadow.BackgroundTransparency = 0.8
+shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+shadow.Parent = screenGui
+
+mainFrame:GetPropertyChangedSignal("Position"):Connect(function()
+    shadow.Position = mainFrame.Position - UDim2.new(0, 5, 0, 5)
 end)
