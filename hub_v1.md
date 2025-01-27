@@ -2,43 +2,53 @@
 local function findItemDebrisFolders(startFolder)
     local debrisFolders = {}
     
-    for _, child in ipairs(startFolder:GetChildren()) do
-        if child:IsA("Folder") and child.Name == "ItemDebris" then
-            table.insert(debrisFolders, child)
-        elseif child:IsA("Model") or child:IsA("Folder") then
-            local subFolders = findItemDebrisFolders(child)
-            for _, folder in ipairs(subFolders) do
-                table.insert(debrisFolders, folder)
+    local function search(folder)
+        for _, child in ipairs(folder:GetChildren()) do
+            if child:IsA("Folder") and child.Name == "ItemDebris" then
+                table.insert(debrisFolders, child)
+            elseif child:IsA("Model") or child:IsA("Folder") then
+                search(child)
             end
         end
     end
     
+    search(startFolder)
     return debrisFolders
 end
 
 -- Создаем переменную для отслеживания состояния скрипта (включен/выключен)
 local scriptEnabled = false
 
+-- Таблица для хранения всех объектов, которые должны следовать за игроком
+local followingObjects = {}
+
 -- Функция для перемещения объекта к игроку, отключения CanCollide
 local function processObject(object)
     local player = game.Players.LocalPlayer
-    if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-        local targetPosition = player.Character.HumanoidRootPart.Position + Vector3.new(0, 0, 0) -- Перемещаем объект на X единиц выше головы игрока
-        
-        if object:IsA("Model") and object.PrimaryPart then
-            object:SetPrimaryPartCFrame(CFrame.new(targetPosition))
-            -- Обрабатываем все части внутри модели
-            for _, part in ipairs(object:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
-                    part.Anchored = true
-                end
+    if not (player and player.Character and player.Character:FindFirstChild("HumanoidRootPart")) then
+        return
+    end
+    
+    local targetPosition = player.Character.HumanoidRootPart.Position + Vector3.new(0, 5, 0) -- Перемещаем объект на 5 единиц выше головы игрока
+    
+    if object:IsA("Model") and object.PrimaryPart then
+        object:SetPrimaryPartCFrame(CFrame.new(targetPosition))
+        -- Обрабатываем все части внутри модели
+        for _, part in ipairs(object:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+				part.Anchored = true
             end
-        elseif object:IsA("BasePart") then
-            object.CFrame = CFrame.new(targetPosition)
-            object.CanCollide = false
-            object.Anchored = true
         end
+    elseif object:IsA("BasePart") then
+        object.CFrame = CFrame.new(targetPosition)
+        object.CanCollide = false
+		part.Anchored = true
+    end
+    
+    -- Добавляем объект в таблицу для постоянного обновления его позиции
+    if scriptEnabled then
+        table.insert(followingObjects, object)
     end
 end
 
@@ -48,7 +58,6 @@ local function handleObjects()
     for _, debrisFolder in ipairs(allDebrisFolders) do
         for _, child in ipairs(debrisFolder:GetChildren()) do
             if child:IsA("Model") or child:IsA("BasePart") then
-                wait(0.1)
                 if scriptEnabled then
                     processObject(child)
                 end
@@ -61,7 +70,6 @@ end
 local function connectChildAddedEvents(debrisFolder)
     debrisFolder.ChildAdded:Connect(function(child)
         if child:IsA("Model") or child:IsA("BasePart") then
-            wait(0.1)
             if scriptEnabled then
                 processObject(child)
             end
@@ -116,6 +124,13 @@ valueLabel.BackgroundTransparency = 1
 valueLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 valueLabel.Parent = mainFrame
 
+-- Кнопка закрытия GUI
+local closeButton = Instance.new("TextButton")
+closeButton.Size = UDim2.new(0, 30, 0, 30)
+closeButton.Position = UDim2.new(0.9, -10, 0, 0)
+closeButton.Text = "X"
+closeButton.Parent = mainFrame
+
 -- Функция для переключения состояния скрипта
 local function toggleScript()
     scriptEnabled = not scriptEnabled
@@ -163,6 +178,34 @@ game:GetService("UserInputService").InputBegan:Connect(function(input, gameProce
     end
 end)
 
+-- Функция для закрытия GUI и выгрузки скрипта
+local function closeGUI()
+    scriptEnabled = false
+    button.Text = "Off"
+    valueLabel.Text = "Status: Off"
+    button.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    
+    -- Остановка всех корутин и событий
+    for _, obj in ipairs(followingObjects) do
+        if obj:IsA("Model") and obj.PrimaryPart then
+            for _, part in ipairs(obj:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
+            end
+        elseif obj:IsA("BasePart") then
+            obj.CanCollide = true
+        end
+    end
+    followingObjects = {}
+    
+    -- Удаление GUI
+    screenGui:Destroy()
+end
+
+-- Привязываем функцию к нажатию кнопки закрытия
+closeButton.MouseButton1Click:Connect(closeGUI)
+
 -- Добавляем эффект тени через изменение цвета и прозрачности основного окна
 local shadowEffect = Instance.new("ImageLabel")
 shadowEffect.Size = UDim2.new(1, 20, 1, 20) -- Размер больше основного окна
@@ -182,3 +225,24 @@ end)
 mainFrame:GetPropertyChangedSignal("Size"):Connect(function()
     shadowEffect.Size = mainFrame.Size + UDim2.new(0, 20, 0, 20)
 end)
+
+-- Корутина для постоянного обновления позиций объектов
+coroutine.wrap(function()
+    while true do
+        if scriptEnabled then
+            local player = game.Players.LocalPlayer
+            if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                local targetPosition = player.Character.HumanoidRootPart.Position + Vector3.new(0, 5, 0)
+                
+                for _, obj in ipairs(followingObjects) do
+                    if obj:IsA("Model") and obj.PrimaryPart then
+                        obj:SetPrimaryPartCFrame(CFrame.new(targetPosition))
+                    elseif obj:IsA("BasePart") then
+                        obj.CFrame = CFrame.new(targetPosition)
+                    end
+                end
+            end
+        end
+        wait(0.1) -- Интервал обновления позиций
+    end
+end)()
