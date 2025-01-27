@@ -19,14 +19,11 @@ end
 -- Создаем переменную для отслеживания состояния скрипта (включен/выключен)
 local scriptEnabled = false
 
--- Переменная для хранения текущего значения прозрачности
-local currentTransparency = 0
-
--- Функция для перемещения объекта к игроку, отключения CanCollide и установки Transparency
+-- Функция для перемещения объекта к игроку, отключения CanCollide
 local function processObject(object)
     local player = game.Players.LocalPlayer
     if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-        local targetPosition = player.Character.HumanoidRootPart.Position + Vector3.new(0, 10, 0) -- Перемещаем объект на X единиц выше головы игрока
+        local targetPosition = player.Character.HumanoidRootPart.Position + Vector3.new(0, 5, 0) -- Перемещаем объект на 5 единиц выше головы игрока
         
         if object:IsA("Model") and object.PrimaryPart then
             object:SetPrimaryPartCFrame(CFrame.new(targetPosition))
@@ -34,13 +31,11 @@ local function processObject(object)
             for _, part in ipairs(object:GetDescendants()) do
                 if part:IsA("BasePart") then
                     part.CanCollide = false
-                    part.Transparency = currentTransparency
                 end
             end
         elseif object:IsA("BasePart") then
-                object.CFrame = CFrame.new(targetPosition)
-                object.CanCollide = false
-                object.Transparency = currentTransparency
+            object.CFrame = CFrame.new(targetPosition)
+            object.CanCollide = false
         end
     end
 end
@@ -83,10 +78,10 @@ local screenGui = Instance.new("ScreenGui")
 screenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 220, 0, 180)
-mainFrame.Position = UDim2.new(0.5, -110, 0.5, -90) -- Позиция по центру экрана
+mainFrame.Size = UDim2.new(0, 220, 0, 140)
+mainFrame.Position = UDim2.new(0.5, -110, 0.5, -70) -- Позиция по центру экрана
 mainFrame.BackgroundTransparency = 0.5
-mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+mainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0) -- Черный фон
 mainFrame.BorderSizePixel = 0
 mainFrame.Draggable = true
 mainFrame.Active = true
@@ -99,7 +94,7 @@ titleFrame.Parent = mainFrame
 
 local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, 0, 1, 0)
-titleLabel.Text = "Object Manager"
+titleLabel.Text = "Hi, exploiter :)"
 titleLabel.BackgroundTransparency = 1
 titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 titleLabel.Parent = titleFrame
@@ -110,22 +105,10 @@ button.Position = UDim2.new(0.5, -50, 0, 30)
 button.Text = "Off"
 button.Parent = mainFrame
 
-local increaseButton = Instance.new("TextButton")
-increaseButton.Size = UDim2.new(0.4, 0, 0, 30)
-increaseButton.Position = UDim2.new(0.1, 0, 0, 70)
-increaseButton.Text = "+"
-increaseButton.Parent = mainFrame
-
-local decreaseButton = Instance.new("TextButton")
-decreaseButton.Size = UDim2.new(0.4, 0, 0, 30)
-decreaseButton.Position = UDim2.new(0.5, 0, 0, 70)
-decreaseButton.Text = "-"
-decreaseButton.Parent = mainFrame
-
 local valueLabel = Instance.new("TextLabel")
 valueLabel.Size = UDim2.new(0.8, 0, 0, 20)
-valueLabel.Position = UDim2.new(0.1, 0, 0, 110)
-valueLabel.Text = "Transparency: 0"
+valueLabel.Position = UDim2.new(0.1, 0, 0, 100)
+valueLabel.Text = "Status: Off"
 valueLabel.BackgroundTransparency = 1
 valueLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 valueLabel.Parent = mainFrame
@@ -135,36 +118,47 @@ local function toggleScript()
     scriptEnabled = not scriptEnabled
     if scriptEnabled then
         button.Text = "On"
+        valueLabel.Text = "Status: On"
         handleObjects() -- Обрабатываем все существующие объекты при включении скрипта
+        coroutine.wrap(function()
+            while scriptEnabled do
+                local time = tick() * 2 -- Увеличиваем скорость анимации
+                local red = math.sin(time) * 0.5 + 0.5
+                local green = math.sin(time + 2 * math.pi / 3) * 0.5 + 0.5
+                local blue = math.sin(time + 4 * math.pi / 3) * 0.5 + 0.5
+                button.BackgroundColor3 = Color3.fromRGB(red * 255, green * 255, blue * 255)
+                wait(0.05)
+            end
+            button.BackgroundColor3 = Color3.fromRGB(255, 255, 255) -- Возвращаем белый цвет после завершения эффекта
+        end)()
     else
         button.Text = "Off"
+        valueLabel.Text = "Status: Off"
+        button.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
     end
 end
 
 -- Привязываем функцию к нажатию кнопки
 button.MouseButton1Click:Connect(toggleScript)
 
--- Функция для увеличения прозрачности
-local function increaseTransparency()
-    currentTransparency = math.min(currentTransparency + 0.05, 1)
-    valueLabel.Text = string.format("Transparency: %.2f", currentTransparency)
-    if scriptEnabled then
-        handleObjects() -- Обрабатываем все существующие объекты при изменении прозрачности
+-- Функция для сворачивания/разворачивания GUI по нажатию клавиши "K"
+local function toggleGUIVisibility()
+    if mainFrame.Visible then
+        mainFrame.Visible = false
+        shadow.Visible = false
+    else
+        mainFrame.Visible = true
+        shadow.Visible = true
     end
 end
 
--- Функция для уменьшения прозрачности
-local function decreaseTransparency()
-    currentTransparency = math.max(currentTransparency - 0.05, 0)
-    valueLabel.Text = string.format("Transparency: %.2f", currentTransparency)
-    if scriptEnabled then
-        handleObjects() -- Обрабатываем все существующие объекты при изменении прозрачности
+game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessedEvent)
+    if not gameProcessedEvent then
+        if input.KeyCode == Enum.KeyCode.K then
+            toggleGUIVisibility()
+        end
     end
-end
-
--- Привязываем функции к нажатию кнопок
-increaseButton.MouseButton1Click:Connect(increaseTransparency)
-decreaseButton.MouseButton1Click:Connect(decreaseTransparency)
+end)
 
 -- Добавляем тень к основному окну
 local shadow = Instance.new("Frame")
@@ -172,6 +166,7 @@ shadow.Size = mainFrame.Size + UDim2.new(0, 10, 0, 10)
 shadow.Position = mainFrame.Position - UDim2.new(0, 5, 0, 5)
 shadow.BackgroundTransparency = 0.8
 shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+shadow.Visible = true -- Изначально видимая тень
 shadow.Parent = screenGui
 
 mainFrame:GetPropertyChangedSignal("Position"):Connect(function()
