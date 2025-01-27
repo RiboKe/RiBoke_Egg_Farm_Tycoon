@@ -23,7 +23,7 @@ local scriptEnabled = false
 local function processObject(object)
     local player = game.Players.LocalPlayer
     if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-        local targetPosition = player.Character.HumanoidRootPart.Position + Vector3.new(0, 10, 0) -- Перемещаем объект на X единиц выше головы игрока
+        local targetPosition = player.Character.HumanoidRootPart.Position + Vector3.new(0, 0, 0) -- Перемещаем объект на X единиц выше головы игрока
         
         if object:IsA("Model") and object.PrimaryPart then
             object:SetPrimaryPartCFrame(CFrame.new(targetPosition))
@@ -31,6 +31,7 @@ local function processObject(object)
             for _, part in ipairs(object:GetDescendants()) do
                 if part:IsA("BasePart") then
                     part.CanCollide = false
+                    part.Anchored = true
                 end
             end
         elseif object:IsA("BasePart") then
