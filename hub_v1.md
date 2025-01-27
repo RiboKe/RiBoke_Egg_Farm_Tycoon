@@ -38,9 +38,9 @@ local function processObject(object)
                 end
             end
         elseif object:IsA("BasePart") then
-            object.CFrame = CFrame.new(targetPosition)
-            object.CanCollide = false
-            object.Transparency = currentTransparency
+                object.CFrame = CFrame.new(targetPosition)
+                object.CanCollide = false
+                object.Transparency = currentTransparency
         end
     end
 end
@@ -83,8 +83,8 @@ local screenGui = Instance.new("ScreenGui")
 screenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 220, 0, 140)
-mainFrame.Position = UDim2.new(0.5, -110, 0.5, -70) -- Позиция по центру экрана
+mainFrame.Size = UDim2.new(0, 220, 0, 180)
+mainFrame.Position = UDim2.new(0.5, -110, 0.5, -90) -- Позиция по центру экрана
 mainFrame.BackgroundTransparency = 0.5
 mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 mainFrame.BorderSizePixel = 0
@@ -110,18 +110,21 @@ button.Position = UDim2.new(0.5, -50, 0, 30)
 button.Text = "Off"
 button.Parent = mainFrame
 
-local slider = Instance.new("Slider")
-slider.Size = UDim2.new(0.8, 0, 0, 30)
-slider.Position = UDim2.new(0.1, 0, 0, 70)
-slider.Min = 0
-slider.Max = 1
-slider.Value = 0
-slider.ShowDecimalValue = true
-slider.Parent = mainFrame
+local increaseButton = Instance.new("TextButton")
+increaseButton.Size = UDim2.new(0.4, 0, 0, 30)
+increaseButton.Position = UDim2.new(0.1, 0, 0, 70)
+increaseButton.Text = "+"
+increaseButton.Parent = mainFrame
+
+local decreaseButton = Instance.new("TextButton")
+decreaseButton.Size = UDim2.new(0.4, 0, 0, 30)
+decreaseButton.Position = UDim2.new(0.5, 0, 0, 70)
+decreaseButton.Text = "-"
+decreaseButton.Parent = mainFrame
 
 local valueLabel = Instance.new("TextLabel")
 valueLabel.Size = UDim2.new(0.8, 0, 0, 20)
-valueLabel.Position = UDim2.new(0.1, 0, 0, 100)
+valueLabel.Position = UDim2.new(0.1, 0, 0, 110)
 valueLabel.Text = "Transparency: 0"
 valueLabel.BackgroundTransparency = 1
 valueLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -141,16 +144,27 @@ end
 -- Привязываем функцию к нажатию кнопки
 button.MouseButton1Click:Connect(toggleScript)
 
--- Обновляем значение прозрачности при изменении положения ползунка
-slider.Changed:Connect(function(property)
-    if property == "Value" then
-        currentTransparency = slider.Value
-        valueLabel.Text = string.format("Transparency: %.2f", currentTransparency)
-        if scriptEnabled then
-            handleObjects() -- Обрабатываем все существующие объекты при изменении прозрачности
-        end
+-- Функция для увеличения прозрачности
+local function increaseTransparency()
+    currentTransparency = math.min(currentTransparency + 0.05, 1)
+    valueLabel.Text = string.format("Transparency: %.2f", currentTransparency)
+    if scriptEnabled then
+        handleObjects() -- Обрабатываем все существующие объекты при изменении прозрачности
     end
-})
+end
+
+-- Функция для уменьшения прозрачности
+local function decreaseTransparency()
+    currentTransparency = math.max(currentTransparency - 0.05, 0)
+    valueLabel.Text = string.format("Transparency: %.2f", currentTransparency)
+    if scriptEnabled then
+        handleObjects() -- Обрабатываем все существующие объекты при изменении прозрачности
+    end
+end
+
+-- Привязываем функции к нажатию кнопок
+increaseButton.MouseButton1Click:Connect(increaseTransparency)
+decreaseButton.MouseButton1Click:Connect(decreaseTransparency)
 
 -- Добавляем тень к основному окну
 local shadow = Instance.new("Frame")
