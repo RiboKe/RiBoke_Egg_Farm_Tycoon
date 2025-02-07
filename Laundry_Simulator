@@ -1,0 +1,140 @@
+local GetName = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId)
+function Owner()
+    for _, v in pairs(game:GetService("Workspace").Plots:GetChildren()) do
+        if v:FindFirstChild("Owner") and v.Owner.Value == game.Players.LocalPlayer then
+            return v
+        end
+    end
+end
+
+-- Анти-АФК
+local vu = game:GetService("VirtualUser")
+game:GetService("Players").LocalPlayer.Idled:connect(function()
+    vu:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+    wait(1)
+    vu:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+end)
+
+local player = game.Players.LocalPlayer
+local DiscordLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/UI-Libs/main/discord%20lib.txt"))()
+local win = DiscordLib:Window(GetName.Name)
+local serv = win:Server("GUI", "")
+local auf = serv:Channel("Farm")
+
+-- Функция для автоматического сбора одежды
+local function AutoGrabClothing()
+    spawn(function()
+        while getgenv().agc do
+            for _, v in pairs(game:GetService("Workspace").Debris.Clothing:GetChildren()) do
+                if v:IsA("MeshPart") then
+                    local Event = game:GetService("ReplicatedStorage").Events.GrabClothing
+                    Event:FireServer(v)
+                    wait(0.1) -- Задержка, чтобы не перегружать сервер
+                end
+            end
+        end
+    end)
+end
+
+-- Функция для автоматической загрузки стиральной машины
+local function AutoLoadWashingMachine()
+    spawn(function()
+        while getgenv().alwm do
+            local plot = Owner()
+            if plot then
+                for _, v in pairs(plot.WashingMachines:GetChildren()) do
+                    if v:IsA("Model") then
+                        local Event = game:GetService("ReplicatedStorage").Events.LoadWashingMachine
+                        Event:FireServer(v)
+                        wait(0.5) -- Задержка, чтобы не перегружать сервер
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- Функция для автоматической выгрузки стиральной машины
+local function AutoUnloadWashingMachine()
+    spawn(function()
+        while getgenv().auwm do
+            local plot = Owner()
+            if plot then
+                for _, v in pairs(plot.WashingMachines:GetChildren()) do
+                    if v:IsA("Model") then
+                        local Event = game:GetService("ReplicatedStorage").Events.UnloadWashingMachine
+                        Event:FireServer(v)
+                        wait(0.5) -- Задержка, чтобы не перегружать сервер
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- Функция для автоматического выбрасывания одежды в шахту
+local function AutoDropClothesInChute()
+    spawn(function()
+        while getgenv().adc do
+            local Event = game:GetService("ReplicatedStorage").Events.DropClothesInChute
+            Event:FireServer()
+            wait(0.1) -- Задержка между запросами
+        end
+    end)
+end
+
+-- GUI элементы
+auf:Label("Для лучшего фарма возьмите участок ближе к шахте.")
+auf:Toggle("Авто-Сбор Одежды", false, function(state)
+    getgenv().agc = state
+    if state then
+        AutoGrabClothing()
+    end
+end)
+
+auf:Toggle("Авто-Загрузка Стиральной Машины", false, function(state)
+    getgenv().alwm = state
+    if state then
+        AutoLoadWashingMachine()
+    end
+end)
+
+auf:Toggle("Авто-Выгрузка Стиральной Машины", false, function(state)
+    getgenv().auwm = state
+    if state then
+        AutoUnloadWashingMachine()
+    end
+end)
+
+auf:Toggle("Авто-Выброс Одежды в Шахту", false, function(state)
+    getgenv().adc = state
+    if state then
+        AutoDropClothesInChute()
+    end
+end)
+
+auf:Button("Получить Gamepasses (работает только для x2 монет)", function()
+    for _, v in pairs(game:GetService("Players").LocalPlayer.Gamepasses:GetChildren()) do
+        if v:IsA("BoolValue") then
+            v.Value = true
+        end
+    end
+end)
+
+local msc = serv:Channel("Misc")
+msc:Textbox("WalkSpeed", "Введите скорость!", true, function(value)
+    if tonumber(value) then
+        game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = tonumber(value)
+    else
+        warn("Неверное значение скорости!")
+    end
+end)
+
+msc:Button("Бесконечные Прыжки", function()
+    local InfiniteJumpEnabled = true
+    game:GetService("UserInputService").JumpRequest:connect(function()
+        if InfiniteJumpEnabled then
+            player.Character:FindFirstChildOfClass("Humanoid"):ChangeState("Jumping")
+        end
+    end)
+end)
