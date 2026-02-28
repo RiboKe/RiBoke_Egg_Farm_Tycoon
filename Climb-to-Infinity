@@ -1,0 +1,180 @@
+-- скрипт для игры Climb to Infinity. скрипт может открывать самостоятельно яйца, но лишь те, что есть в списке.
+local CoreGui = game:GetService("CoreGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+
+local player = Players.LocalPlayer
+local isActive = false
+local isDestroyed = false
+local attempts = 0
+local fileName = "ps99_fixed_menu.json"
+
+local settings = { waitTime = 0.5, selectedEgg = "Heaven" }
+
+local eggConfigs = {
+    ["Heaven"] = { PetsToAutoDelete = {"Heaven Butterfly", "Heaven Dog", "Heaven Cat", "Angelic Bunny"}, EggName = "Heaven" },
+    ["Enchanted"] = { PetsToAutoDelete = {}, EggName = "Enchanted" },
+    ["Candy Basket"] = { PetsToAutoDelete = {"Alien", "Tech Dog", "Tech Dragon", "Tech Octopus", "Gummy Bear", "Cotton Sheep", "Candy Cow", "Bubblegum Dragon"}, EggName = "Candy Basket" },
+    ["Toxic"] = { PetsToAutoDelete = {"Alien", "Tech Dog", "Tech Dragon", "Tech Octopus", "Gummy Bear", "Cotton Sheep", "Candy Cow", "Bubblegum Dragon", "Hazmat Dog", "Toxic Slime", "Nuclear Spider", "Radioactive Dragon"}, EggName = "Toxic" }
+}
+
+-- Загрузка/Сохранение
+if isfile and isfile(fileName) then
+    pcall(function() 
+        local data = HttpService:JSONDecode(readfile(fileName))
+        settings.waitTime = data.waitTime or 0.5
+        settings.selectedEgg = data.selectedEgg or "Heaven"
+    end)
+end
+
+local function saveSettings() if writefile then writefile(fileName, HttpService:JSONEncode(settings)) end end
+
+-- ИНТЕРФЕЙС
+local screenGui = Instance.new("ScreenGui", (RunService:IsStudio() and player.PlayerGui) or CoreGui)
+screenGui.Name = "PS99_FinalFixed"
+screenGui.DisplayOrder = 100 -- Чтобы быть поверх всего
+
+local main = Instance.new("Frame", screenGui)
+main.Size = UDim2.new(0, 220, 0, 300)
+main.Position = UDim2.new(0.5, -110, 0.5, -150)
+main.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+main.BorderSizePixel = 0
+main.Active = true main.Draggable = true
+Instance.new("UICorner").Parent = main
+
+local title = Instance.new("TextLabel", main)
+title.Size = UDim2.new(1, 0, 0, 40)
+title.Text = "PS99 SAFE HATCHER"
+title.TextColor3 = Color3.fromRGB(0, 255, 150)
+title.BackgroundTransparency = 1
+title.Font = Enum.Font.GothamBold
+title.TextSize = 16
+
+-- ДРОПДАУН (ФИКС)
+local dropdownBtn = Instance.new("TextButton", main)
+dropdownBtn.Size = UDim2.new(0.85, 0, 0, 35)
+dropdownBtn.Position = UDim2.new(0.075, 0, 0.16, 0)
+dropdownBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+dropdownBtn.Text = settings.selectedEgg .. " ▼"
+dropdownBtn.TextColor3 = Color3.new(1, 1, 0)
+dropdownBtn.Font = Enum.Font.GothamSemibold
+dropdownBtn.ZIndex = 10
+Instance.new("UICorner").Parent = dropdownBtn
+
+local itemsList = Instance.new("ScrollingFrame", main)
+itemsList.Size = UDim2.new(0.85, 0, 0, 0) -- Начальная высота 0
+itemsList.Position = UDim2.new(0.075, 0, 0.28, 0)
+itemsList.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+itemsList.BorderSizePixel = 0
+itemsList.Visible = false
+itemsList.ZIndex = 20 -- Выше всех остальных элементов
+itemsList.ScrollBarThickness = 3
+Instance.new("UICorner").Parent = itemsList
+
+local listLayout = Instance.new("UIListLayout", itemsList)
+listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- Наполнение списка
+for name, _ in pairs(eggConfigs) do
+    local b = Instance.new("TextButton", itemsList)
+    b.Size = UDim2.new(1, 0, 0, 30)
+    b.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    b.Text = name
+    b.TextColor3 = Color3.new(1, 1, 1)
+    b.Font = Enum.Font.Gotham
+    b.BorderSizePixel = 0
+    b.ZIndex = 21
+    
+    b.MouseButton1Click:Connect(function()
+        settings.selectedEgg = name
+        dropdownBtn.Text = name .. " ▼"
+        itemsList.Visible = false
+        itemsList.Size = UDim2.new(0.85, 0, 0, 0)
+        saveSettings()
+        attempts = 0
+    end)
+end
+
+dropdownBtn.MouseButton1Click:Connect(function()
+    itemsList.Visible = not itemsList.Visible
+    if itemsList.Visible then
+        itemsList.Size = UDim2.new(0.85, 0, 0, 120)
+        itemsList.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y)
+    else
+        itemsList.Size = UDim2.new(0.85, 0, 0, 0)
+    end
+end)
+
+-- Остальное
+local counterLabel = Instance.new("TextLabel", main)
+counterLabel.Size = UDim2.new(1, 0, 0, 30)
+counterLabel.Position = UDim2.new(0, 0, 0.35, 0)
+counterLabel.Text = "Attempts: 0"
+counterLabel.TextColor3 = Color3.new(1, 1, 1)
+counterLabel.BackgroundTransparency = 1
+
+local toggleBtn = Instance.new("TextButton", main)
+toggleBtn.Size = UDim2.new(0.85, 0, 0, 40)
+toggleBtn.Position = UDim2.new(0.075, 0, 0.48, 0)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+toggleBtn.Text = "START"
+toggleBtn.TextColor3 = Color3.new(1, 1, 1)
+toggleBtn.Font = Enum.Font.GothamBold
+Instance.new("UICorner").Parent = toggleBtn
+
+local inputField = Instance.new("TextBox", main)
+inputField.Size = UDim2.new(0.85, 0, 0, 35)
+inputField.Position = UDim2.new(0.075, 0, 0.68, 0)
+inputField.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+inputField.Text = tostring(settings.waitTime)
+inputField.TextColor3 = Color3.new(1, 1, 1)
+Instance.new("UICorner").Parent = inputField
+
+local unloadBtn = Instance.new("TextButton", main)
+unloadBtn.Size = UDim2.new(0.85, 0, 0, 25)
+unloadBtn.Position = UDim2.new(0.075, 0, 0.88, 0)
+unloadBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+unloadBtn.Text = "Unload"
+unloadBtn.TextColor3 = Color3.fromRGB(130, 130, 130)
+Instance.new("UICorner").Parent = unloadBtn
+
+-- ЛОГИКА ЦИКЛА
+toggleBtn.MouseButton1Click:Connect(function()
+    isActive = not isActive
+    toggleBtn.Text = isActive and "STOP" or "START"
+    toggleBtn.BackgroundColor3 = isActive and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 0, 0)
+end)
+
+inputField.FocusLost:Connect(function()
+    settings.waitTime = tonumber(inputField.Text) or 0.5
+    saveSettings()
+end)
+
+unloadBtn.MouseButton1Click:Connect(function()
+    isDestroyed = true
+    isActive = false
+    screenGui:Destroy()
+end)
+
+task.spawn(function()
+    local remote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("InvokeServerAction")
+    while not isDestroyed do
+        if isActive then
+            local config = eggConfigs[settings.selectedEgg]
+            local success = pcall(function()
+                remote:InvokeServer("Eggs", "RequestPurchase", {
+                    PetsToAutoDelete = config.PetsToAutoDelete,
+                    EggAmount = "max",
+                    EggName = config.EggName
+                })
+            end)
+            if success then
+                attempts = attempts + 1
+                counterLabel.Text = "Attempts: " .. attempts
+            end
+        end
+        task.wait(settings.waitTime)
+    end
+end)
