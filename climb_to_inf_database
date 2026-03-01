@@ -1,0 +1,128 @@
+-- climb to infinity data from database
+local CONFIG_URL = "https://raw.githubusercontent.com/RiboKe/RiBoke_Egg_Farm_Tycoon/refs/heads/main/database_ClimbToInf"
+
+local CoreGui = game:GetService("CoreGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+
+local success, EGG_DATABASE = pcall(function()
+    return loadstring(game:HttpGet(CONFIG_URL))()
+end)
+
+if not success or type(EGG_DATABASE) ~= "table" then
+    warn("not found database.")
+    EGG_DATABASE = {["Error"] = {Name = "None", Delete = {}}}
+end
+
+local settings = { waitTime = 0.5, selectedEgg = next(EGG_DATABASE) }
+local isActive, isDestroyed, attempts = false, false, 0
+local fileName = "cti_config.json"
+
+local function save() if writefile then writefile(fileName, HttpService:JSONEncode(settings)) end end
+if isfile and isfile(fileName) then 
+    pcall(function() 
+        local d = HttpService:JSONDecode(readfile(fileName)) 
+        settings.waitTime = d.waitTime or 0.5
+        if EGG_DATABASE[d.selectedEgg] then settings.selectedEgg = d.selectedEgg end
+    end) 
+end
+
+local screenGui = Instance.new("ScreenGui", (RunService:IsStudio() and Players.LocalPlayer.PlayerGui) or CoreGui)
+screenGui.Name = "PS99_GitHub_Hatcher"
+
+local main = Instance.new("Frame", screenGui)
+main.Size, main.Position = UDim2.new(0, 220, 0, 310), UDim2.new(0.5, -110, 0.5, -155)
+main.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+main.Active, main.Draggable = true, true
+Instance.new("UICorner").Parent = main
+
+local title = Instance.new("TextLabel", main)
+title.Size, title.BackgroundTransparency = UDim2.new(1, 0, 0, 40), 1
+title.Text, title.TextColor3 = "PRO HATCHER (CLOUD)", Color3.fromRGB(0, 255, 150)
+title.Font, title.TextSize = Enum.Font.GothamBold, 14
+
+local dropBtn = Instance.new("TextButton", main)
+dropBtn.Size, dropBtn.Position = UDim2.new(0.85, 0, 0, 35), UDim2.new(0.075, 0, 0.15, 0)
+dropBtn.Text = settings.selectedEgg .. " ▼"
+dropBtn.BackgroundColor3, dropBtn.TextColor3 = Color3.fromRGB(35, 35, 35), Color3.new(1, 1, 0)
+Instance.new("UICorner").Parent = dropBtn
+
+local scroll = Instance.new("ScrollingFrame", main)
+scroll.Size, scroll.Position = UDim2.new(0.85, 0, 0, 0), UDim2.new(0.075, 0, 0.28, 0)
+scroll.Visible, scroll.ZIndex = false, 10
+scroll.BackgroundColor3, scroll.BorderSizePixel = Color3.fromRGB(25, 25, 25), 0
+scroll.ScrollBarThickness = 3
+Instance.new("UIListLayout", scroll)
+
+for id, _ in pairs(EGG_DATABASE) do
+    local b = Instance.new("TextButton", scroll)
+    b.Size, b.Text = UDim2.new(1, 0, 0, 30), id
+    b.BackgroundColor3, b.TextColor3 = Color3.fromRGB(30, 30, 30), Color3.new(1, 1, 1)
+    b.BorderSizePixel = 0
+    b.MouseButton1Click:Connect(function()
+        settings.selectedEgg = id
+        dropBtn.Text = id .. " ▼"
+        scroll.Visible, scroll.Size = false, UDim2.new(0.85, 0, 0, 0)
+        save(); attempts = 0
+    end)
+end
+
+dropBtn.MouseButton1Click:Connect(function()
+    scroll.Visible = not scroll.Visible
+    scroll.Size = scroll.Visible and UDim2.new(0.85, 0, 0, 120) or UDim2.new(0.85, 0, 0, 0)
+end)
+
+local countL = Instance.new("TextLabel", main)
+countL.Size, countL.Position = UDim2.new(1, 0, 0, 30), UDim2.new(0, 0, 0.35, 0)
+countL.Text, countL.TextColor3, countL.BackgroundTransparency = "Attempts: 0", Color3.new(1, 1, 1), 1
+countL.Font = Enum.Font.Code
+
+local startB = Instance.new("TextButton", main)
+startB.Size, startB.Position = UDim2.new(0.85, 0, 0, 45), UDim2.new(0.075, 0, 0.48, 0)
+startB.Text, startB.BackgroundColor3 = "START", Color3.fromRGB(150, 0, 0)
+startB.Font, startB.TextColor3 = Enum.Font.GothamBold, Color3.new(1, 1, 1)
+Instance.new("UICorner").Parent = startB
+
+local speedI = Instance.new("TextBox", main)
+speedI.Size, speedI.Position = UDim2.new(0.85, 0, 0, 35), UDim2.new(0.075, 0, 0.68, 0)
+speedI.Text, speedI.BackgroundColor3 = tostring(settings.waitTime), Color3.fromRGB(35, 35, 35)
+speedI.TextColor3 = Color3.new(0.5, 0.8, 1)
+Instance.new("UICorner").Parent = speedI
+
+local unloadB = Instance.new("TextButton", main)
+unloadB.Size, unloadB.Position = UDim2.new(0.85, 0, 0, 25), UDim2.new(0.075, 0, 0.88, 0)
+unloadB.Text, unloadB.BackgroundColor3 = "Unload", Color3.fromRGB(40, 40, 40)
+unloadB.TextColor3 = Color3.new(0.6, 0.6, 0.6)
+Instance.new("UICorner").Parent = unloadB
+
+startB.MouseButton1Click:Connect(function()
+    isActive = not isActive
+    startB.Text = isActive and "STOP" or "START"
+    startB.BackgroundColor3 = isActive and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 0, 0)
+end)
+
+speedI.FocusLost:Connect(function() settings.waitTime = tonumber(speedI.Text) or 0.5; save() end)
+unloadB.MouseButton1Click:Connect(function() isDestroyed = true; screenGui:Destroy() end)
+
+task.spawn(function()
+    local remote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("InvokeServerAction")
+    while not isDestroyed do
+        if isActive then
+            local conf = EGG_DATABASE[settings.selectedEgg]
+            if conf then
+                pcall(function()
+                    remote:InvokeServer("Eggs", "RequestPurchase", {
+                        PetsToAutoDelete = conf.Delete,
+                        EggAmount = "max",
+                        EggName = conf.Name
+                    })
+                end)
+                attempts = attempts + 1
+                countL.Text = "Attempts: " .. attempts
+            end
+        end
+        task.wait(settings.waitTime)
+    end
+end)
