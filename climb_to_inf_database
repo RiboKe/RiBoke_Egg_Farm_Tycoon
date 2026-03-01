@@ -114,9 +114,9 @@ task.spawn(function()
             if conf then
                 pcall(function()
                     remote:InvokeServer("Eggs", "RequestPurchase", {
-                        PetsToAutoDelete = conf.Delete,
+                        PetsToAutoDelete = conf.PetsToAutoDelete,
                         EggAmount = "max",
-                        EggName = conf.Name
+                        EggName = conf.EggName
                     })
                 end)
                 attempts = attempts + 1
