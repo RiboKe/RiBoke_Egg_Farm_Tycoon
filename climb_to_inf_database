@@ -7,7 +7,6 @@ local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 
--- [1] ЗАГРУЗКА БАЗЫ ДАННЫХ
 local success, result = pcall(function()
     return loadstring(game:HttpGet(CONFIG_URL))()
 end)
@@ -15,15 +14,6 @@ end)
 local EGG_DATABASE = {}
 if success and type(result) == "table" then
     EGG_DATABASE = result
-    print("--- [ DEBUG: EGG DATABASE LOADED ] ---")
-    local count = 0
-    for key, value in pairs(EGG_DATABASE) do
-        count = count + 1
-        print(string.format("[%d] Found Egg: %s", count, tostring(key)))
-    end
-else
-    warn("❌ DATABASE NOT FOUND! Check link or syntax.")
-    EGG_DATABASE = {["Error"] = {EggName = "None", PetsToAutoDelete = {}}}
 end
 
 -- [2] НАСТРОЙКИ И СОХРАНЕНИЕ
