@@ -1,0 +1,8 @@
+-- database ClimbToInf
+return {
+    ["Heaven"] = { PetsToAutoDelete = {"Heaven Butterfly", "Heaven Dog", "Heaven Cat", "Angelic Bunny"}, EggName = "Heaven" },
+    ["Enchanted"] = { PetsToAutoDelete = {"Alien", "Tech Dog", "Tech Dragon", "Tech Octopus"}, EggName = "Enchanted" },
+    ["Candy Basket"] = { PetsToAutoDelete = {"Gummy Bear", "Cotton Sheep", "Candy Cow", "Bubblegum Dragon"}, EggName = "Candy Basket" },
+    ["Toxic"] = { PetsToAutoDelete = {"Hazmat Dog", "Toxic Slime", "Nuclear Spider", "Radioactive Dragon"}, EggName = "Toxic" }
+    ["Galaxy"] = { PetsToAutoDelete = {"Galaxy Dog", "Galaxy Bear", "Galaxy Hamster"}, EggName = "Galaxy" }
+}
