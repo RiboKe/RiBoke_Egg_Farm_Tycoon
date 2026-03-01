@@ -16,7 +16,6 @@ if success and type(result) == "table" then
     EGG_DATABASE = result
 end
 
--- [2] НАСТРОЙКИ И СОХРАНЕНИЕ
 local settings = { waitTime = 0.5, selectedEgg = next(EGG_DATABASE) }
 local isActive, isDestroyed, attempts = false, false, 0
 local fileName = "cti_config.json"
@@ -30,7 +29,6 @@ if isfile and isfile(fileName) then
     end) 
 end
 
--- [3] ИНТЕРФЕЙС
 local screenGui = Instance.new("ScreenGui", (RunService:IsStudio() and Players.LocalPlayer.PlayerGui) or CoreGui)
 screenGui.Name = "PS99_Cloud_Hatcher"
 screenGui.ResetOnSpawn = false
@@ -58,10 +56,9 @@ scroll.Size, scroll.Position = UDim2.new(0.85, 0, 0, 0), UDim2.new(0.075, 0, 0.2
 scroll.Visible, scroll.ZIndex = false, 10
 scroll.BackgroundColor3, scroll.BorderSizePixel = Color3.fromRGB(25, 25, 25), 0
 scroll.ScrollBarThickness = 3
-scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y -- Авто-размер под кнопки
+scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 local listLayout = Instance.new("UIListLayout", scroll)
 
--- [4] СОЗДАНИЕ КНОПОК В СПИСКЕ
 for id, data in pairs(EGG_DATABASE) do
     local b = Instance.new("TextButton", scroll)
     b.Size = UDim2.new(1, 0, 0, 30)
@@ -81,7 +78,6 @@ for id, data in pairs(EGG_DATABASE) do
         scroll.Size = UDim2.new(0.85, 0, 0, 0)
         save()
         attempts = 0
-        -- countL обновим ниже в коде
     end)
 end
 
@@ -90,7 +86,6 @@ dropBtn.MouseButton1Click:Connect(function()
     scroll.Size = scroll.Visible and UDim2.new(0.85, 0, 0, 120) or UDim2.new(0.85, 0, 0, 0)
 end)
 
--- [5] ОСТАЛЬНОЙ UI
 local countL = Instance.new("TextLabel", main)
 countL.Size, countL.Position = UDim2.new(1, 0, 0, 30), UDim2.new(0, 0, 0.35, 0)
 countL.Text, countL.TextColor3, countL.BackgroundTransparency = "Attempts: 0", Color3.new(1, 1, 1), 1
@@ -114,7 +109,6 @@ unloadB.Text, unloadB.BackgroundColor3 = "Unload", Color3.fromRGB(40, 40, 40)
 unloadB.TextColor3 = Color3.new(0.6, 0.6, 0.6)
 Instance.new("UICorner").Parent = unloadB
 
--- [6] ЛОГИКА КНОПОК
 startB.MouseButton1Click:Connect(function()
     isActive = not isActive
     startB.Text = isActive and "STOP" or "START"
@@ -131,7 +125,6 @@ unloadB.MouseButton1Click:Connect(function()
     screenGui:Destroy() 
 end)
 
--- [7] ЦИКЛ РАБОТЫ
 task.spawn(function()
     local remote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("InvokeServerAction")
     while not isDestroyed do
