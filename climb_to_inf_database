@@ -56,18 +56,34 @@ scroll.BackgroundColor3, scroll.BorderSizePixel = Color3.fromRGB(25, 25, 25), 0
 scroll.ScrollBarThickness = 3
 Instance.new("UIListLayout", scroll)
 
-for id, _ in pairs(EGG_DATABASE) do
+for id, data in pairs(EGG_DATABASE) do
     local b = Instance.new("TextButton", scroll)
-    b.Size, b.Text = UDim2.new(1, 0, 0, 30), id
-    b.BackgroundColor3, b.TextColor3 = Color3.fromRGB(30, 30, 30), Color3.new(1, 1, 1)
+    b.Size = UDim2.new(1, 0, 0, 30)
+    b.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
     b.BorderSizePixel = 0
+    b.Text = tostring(id) -- Имя яйца из базы
+    b.TextColor3 = Color3.new(1, 1, 1) -- Белый цвет текста
+    b.Font = Enum.Font.GothamSemibold
+    b.TextSize = 14
+    b.ZIndex = 12 -- Выше фона скролла
+    b.AutoButtonColor = true -- Чтобы кнопка подсвечивалась при наведении
+
+    -- Эффект при наведении (опционально, для удобства)
+    b.MouseEnter:Connect(function() b.BackgroundColor3 = Color3.fromRGB(60, 60, 60) end)
+    b.MouseLeave:Connect(function() b.BackgroundColor3 = Color3.fromRGB(40, 40, 40) end)
+
     b.MouseButton1Click:Connect(function()
         settings.selectedEgg = id
         dropBtn.Text = id .. " ▼"
-        scroll.Visible, scroll.Size = false, UDim2.new(0.85, 0, 0, 0)
-        save(); attempts = 0
+        scroll.Visible = false
+        scroll.Size = UDim2.new(0.85, 0, 0, 0)
+        save()
+        attempts = 0
+        countL.Text = "Attempts: 0"
     end)
 end
+
+scroll.CanvasSize = UDim2.new(0, 0, 0, #scroll:GetChildren() * 30)
 
 dropBtn.MouseButton1Click:Connect(function()
     scroll.Visible = not scroll.Visible
