@@ -1,0 +1,143 @@
+-- [ CLOUD DATABASE LOADER ]
+local CONFIG_URL = "https://raw.githubusercontent.com" .. "?t=" .. math.random(1,1000)
+
+local CoreGui = game:GetService("CoreGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+
+local success, EGG_DATABASE = pcall(function() return loadstring(game:HttpGet(CONFIG_URL))() end)
+if not success then EGG_DATABASE = {["Error"] = {AllPets = {}}} end
+
+-- [ ПЕРЕМЕННЫЕ ]
+local settings = { waitTime = 0.5, selectedEgg = next(EGG_DATABASE), deleteList = {} }
+local isActive, isDestroyed, attempts = false, false, 0
+local fileName = "cti_v4_manager.json"
+
+-- [ ЗАГРУЗКА СОХРАНЕНИЙ ]
+if isfile and isfile(fileName) then
+    pcall(function() 
+        local d = HttpService:JSONDecode(readfile(fileName))
+        settings.waitTime = d.waitTime or 0.5
+        settings.selectedEgg = d.selectedEgg or settings.selectedEgg
+        settings.deleteList = d.deleteList or {}
+    end)
+end
+
+local function save() if writefile then writefile(fileName, HttpService:JSONEncode(settings)) end end
+
+-- [ ИНТЕРФЕЙС ]
+local screenGui = Instance.new("ScreenGui", (RunService:IsStudio() and game.Players.LocalPlayer.PlayerGui) or CoreGui)
+local main = Instance.new("Frame", screenGui)
+main.Size, main.Position = UDim2.new(0, 250, 0, 400), UDim2.new(0.5, -125, 0.5, -200)
+main.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+main.Active, main.Draggable = true, true
+Instance.new("UICorner").Parent = main
+
+local title = Instance.new("TextLabel", main)
+title.Size, title.Text = UDim2.new(1, 0, 0, 35), "PS99 ULTRA MANAGER"
+title.TextColor3, title.BackgroundTransparency = Color3.new(0, 1, 0.6), 1
+
+-- СЕКЦИЯ ПИТОМЦЕВ (Чекбоксы)
+local petListFrame = Instance.new("ScrollingFrame", main)
+petListFrame.Size, petListFrame.Position = UDim2.new(0.9, 0, 0, 150), UDim2.new(0.05, 0, 0.45, 0)
+petListFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+petListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+petListFrame.ScrollBarThickness = 4
+Instance.new("UIListLayout", petListFrame)
+
+local function updatePetUI()
+    for _, v in pairs(petListFrame:GetChildren()) do if v:IsA("TextButton") then v:Destroy() end end
+    local eggData = EGG_DATABASE[settings.selectedEgg]
+    if not eggData then return end
+
+    for _, petName in pairs(eggData.AllPets) do
+        local btn = Instance.new("TextButton", petListFrame)
+        btn.Size = UDim2.new(1, 0, 0, 25)
+        btn.BackgroundColor3 = table.find(settings.deleteList, petName) and Color3.fromRGB(150, 50, 50) or Color3.fromRGB(40, 40, 40)
+        btn.Text = (table.find(settings.deleteList, petName) and "[DEL] " or "[KEEP] ") .. petName
+        btn.TextColor3 = Color3.new(1, 1, 1)
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 12
+
+        btn.MouseButton1Click:Connect(function()
+            local idx = table.find(settings.deleteList, petName)
+            if idx then table.remove(settings.deleteList, idx) else table.insert(settings.deleteList, petName) end
+            btn.BackgroundColor3 = table.find(settings.deleteList, petName) and Color3.fromRGB(150, 50, 50) or Color3.fromRGB(40, 40, 40)
+            btn.Text = (table.find(settings.deleteList, petName) and "[DEL] " or "[KEEP] ") .. petName
+            save()
+        end)
+    end
+    petListFrame.CanvasSize = UDim2.new(0, 0, 0, #eggData.AllPets * 25)
+end
+
+-- [ ВЫБОР ЯЙЦА (Dropdown) ]
+local dropBtn = Instance.new("TextButton", main)
+dropBtn.Size, dropBtn.Position = UDim2.new(0.9, 0, 0, 35), UDim2.new(0.05, 0, 0.12, 0)
+dropBtn.Text = settings.selectedEgg .. " ▼"
+dropBtn.BackgroundColor3, dropBtn.TextColor3 = Color3.fromRGB(45, 45, 45), Color3.new(1, 1, 0)
+
+local eggScroll = Instance.new("ScrollingFrame", main)
+eggScroll.Size, eggScroll.Position = UDim2.new(0.9, 0, 0, 0), UDim2.new(0.05, 0, 0.22, 0)
+eggScroll.Visible, eggScroll.ZIndex = false, 10
+eggScroll.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Instance.new("UIListLayout", eggScroll)
+
+for id, _ in pairs(EGG_DATABASE) do
+    local b = Instance.new("TextButton", eggScroll)
+    b.Size, b.Text = UDim2.new(1, 0, 0, 30), id
+    b.TextColor3, b.BackgroundColor3 = Color3.new(1, 1, 1), Color3.fromRGB(35, 35, 35)
+    b.MouseButton1Click:Connect(function()
+        settings.selectedEgg = id
+        dropBtn.Text = id .. " ▼"
+        eggScroll.Visible = false
+        eggScroll.Size = UDim2.new(0.9, 0, 0, 0)
+        updatePetUI()
+        save()
+    end)
+end
+eggScroll.CanvasSize = UDim2.new(0, 0, 0, 1000) -- Примерно
+
+dropBtn.MouseButton1Click:Connect(function()
+    eggScroll.Visible = not eggScroll.Visible
+    eggScroll.Size = eggScroll.Visible and UDim2.new(0.9, 0, 0, 200) or UDim2.new(0.9, 0, 0, 0)
+end)
+
+-- [ УПРАВЛЕНИЕ ]
+local startB = Instance.new("TextButton", main)
+startB.Size, startB.Position = UDim2.new(0.4, 0, 0, 40), UDim2.new(0.05, 0, 0.85, 0)
+startB.Text, startB.BackgroundColor3 = "START", Color3.fromRGB(150, 0, 0)
+
+local speedI = Instance.new("TextBox", main)
+speedI.Size, speedI.Position = UDim2.new(0.4, 0, 0, 40), UDim2.new(0.55, 0, 0.85, 0)
+speedI.Text, speedI.BackgroundColor3 = tostring(settings.waitTime), Color3.fromRGB(40, 40, 40)
+speedI.TextColor3 = Color3.new(1, 1, 1)
+
+startB.MouseButton1Click:Connect(function()
+    isActive = not isActive
+    startB.Text = isActive and "STOP" or "START"
+    startB.BackgroundColor3 = isActive and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 0, 0)
+end)
+
+speedI.FocusLost:Connect(function() settings.waitTime = tonumber(speedI.Text) or 0.5 save() end)
+
+-- [ ЦИКЛ ]
+task.spawn(function()
+    local remote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("InvokeServerAction")
+    while not isDestroyed do
+        if isActive then
+            pcall(function()
+                remote:InvokeServer("Eggs", "RequestPurchase", {
+                    PetsToAutoDelete = settings.deleteList, -- Используем наш список из чекбоксов
+                    EggAmount = "max",
+                    EggName = settings.selectedEgg
+                })
+            end)
+            attempts = attempts + 1
+            title.Text = "Attempts: " .. attempts
+        end
+        task.wait(settings.waitTime)
+    end
+end)
+
+updatePetUI() -- Первый запуск
