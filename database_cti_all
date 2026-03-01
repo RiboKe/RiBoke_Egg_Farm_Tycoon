@@ -1,0 +1,222 @@
+return {
+    ["Gooey Saturn"] = {
+        EggName = "Gooey Saturn",
+        AllPets = {}
+    },
+    ["Galaxy"] = {
+        EggName = "Galaxy",
+        AllPets = {"Galaxy Turtle", "Galaxy Dragon", "Galaxy Horse", "Galaxy Axolotl", "Galaxy Cat", "Galaxy Hamster", "Galaxy Bear", "Galaxy Dog"}
+    },
+    ["Toxic Spike"] = {
+        EggName = "Toxic Spike",
+        AllPets = {}
+    },
+    ["Mushroom"] = {
+        EggName = "Mushroom",
+        AllPets = {"Mushroom", "Mushroom Axolotl", "Mushroom Hedgehog", "Mushroom Lizard", "Mushroom Squirrel"}
+    },
+    ["Heaven"] = {
+        EggName = "Heaven",
+        AllPets = {"Heaven Butterfly", "Heaven Fox", "Heaven Cat", "Heaven Dog", "Heaven Dominus"}
+    },
+    ["Ancient Angel"] = {
+        EggName = "Ancient Angel",
+        AllPets = {}
+    },
+    ["Banana"] = {
+        EggName = "Banana",
+        AllPets = {}
+    },
+    ["8-Bit"] = {
+        EggName = "8-Bit",
+        AllPets = {}
+    },
+    ["Lucky"] = {
+        EggName = "Lucky",
+        AllPets = {}
+    },
+    ["Present"] = {
+        EggName = "Present",
+        AllPets = {}
+    },
+    ["Gift"] = {
+        EggName = "Gift",
+        AllPets = {}
+    },
+    ["Flower"] = {
+        EggName = "Flower",
+        AllPets = {}
+    },
+    ["Tree"] = {
+        EggName = "Tree",
+        AllPets = {}
+    },
+    ["Cactus"] = {
+        EggName = "Cactus",
+        AllPets = {"Cactus Cat", "Leonelli Cactuselli"}
+    },
+    ["Floatie"] = {
+        EggName = "Floatie",
+        AllPets = {}
+    },
+    ["Pirate"] = {
+        EggName = "Pirate",
+        AllPets = {"Pirate Parrot", "Pirate Dog"}
+    },
+    ["Nut"] = {
+        EggName = "Nut",
+        AllPets = {}
+    },
+    ["Snowflake"] = {
+        EggName = "Snowflake",
+        AllPets = {"Snowflake Cat", "Snowflake Slime"}
+    },
+    ["Snowman"] = {
+        EggName = "Snowman",
+        AllPets = {"Snowman"}
+    },
+    ["Candy Basket"] = {
+        EggName = "Candy Basket",
+        AllPets = {}
+    },
+    ["Coctail"] = {
+        EggName = "Coctail",
+        AllPets = {}
+    },
+    ["Hot Chocolate"] = {
+        EggName = "Hot Chocolate",
+        AllPets = {}
+    },
+    ["Aqua Pearl"] = {
+        EggName = "Aqua Pearl",
+        AllPets = {}
+    },
+    ["Ocean"] = {
+        EggName = "Ocean",
+        AllPets = {}
+    },
+    ["Silver Spire"] = {
+        EggName = "Silver Spire",
+        AllPets = {}
+    },
+    ["Corn"] = {
+        EggName = "Corn",
+        AllPets = {"Candy Corn", "Candy Corn Axolotl"}
+    },
+    ["Hamburger"] = {
+        EggName = "Hamburger",
+        AllPets = {}
+    },
+    ["Beehive"] = {
+        EggName = "Beehive",
+        AllPets = {}
+    },
+    ["Enchanted"] = {
+        EggName = "Enchanted",
+        AllPets = {"Enchanted Wolf"}
+    },
+    ["Serpent Amethyst"] = {
+        EggName = "Serpent Amethyst",
+        AllPets = {}
+    },
+    ["Voidspike"] = {
+        EggName = "Voidspike",
+        AllPets = {}
+    },
+    ["Dragon"] = {
+        EggName = "Dragon",
+        AllPets = {"Winter Dragon", "Lava Dragon", "Dragonfly", "Bubblegum Dragon", "Devil Dragon", "Tech Dragon", "Evil Dragon", "Spooky Dragon", "Radioactive Dragon", "Diamond Dragon", "Cool Dragon", "Citylight Dragon", "Sun Dragon", "Shiver Dragon", "Halloween Dragon", "Zombie Dragon", "Mysterious Dragon", "Galaxy Dragon", "Error Dragon"}
+    },
+    ["Molten Lava"] = {
+        EggName = "Molten Lava",
+        AllPets = {}
+    },
+    ["Volcano"] = {
+        EggName = "Volcano",
+        AllPets = {}
+    },
+    ["UFO"] = {
+        EggName = "UFO",
+        AllPets = {}
+    },
+    ["Ninja"] = {
+        EggName = "Ninja",
+        AllPets = {}
+    },
+    ["Basic"] = {
+        EggName = "Basic",
+        AllPets = {}
+    },
+    ["Toxic"] = {
+        EggName = "Toxic",
+        AllPets = {"Toxic Gecko", "Toxic Bear", "Toxic Dominus", "Toxic Slime"}
+    },
+    ["Nuclear"] = {
+        EggName = "Nuclear",
+        AllPets = {"Nuclear Axolotl", "Nuclear Cube", "Nuclear Spider"}
+    },
+    ["Pumpkin"] = {
+        EggName = "Pumpkin",
+        AllPets = {"Pumpkin Bear", "Pumpkin Elephant"}
+    },
+    ["Candy Corn"] = {
+        EggName = "Candy Corn",
+        AllPets = {"Candy Corn", "Candy Corn Axolotl"}
+    },
+    ["City"] = {
+        EggName = "City",
+        AllPets = {"Citylight Dragon"}
+    },
+    ["Police"] = {
+        EggName = "Police",
+        AllPets = {"Police Cat", "Police Bunny"}
+    },
+    ["Mine"] = {
+        EggName = "Mine",
+        AllPets = {"Miner Axolotl", "Miner Dog"}
+    },
+    ["Crystal"] = {
+        EggName = "Crystal",
+        AllPets = {"Crystal Reindeer", "Crystal Dominus", "Crystal Ice Tiger", "Crystal Crab"}
+    },
+    ["Zombie"] = {
+        EggName = "Zombie",
+        AllPets = {"Zombie Fox", "Zombie Bunny", "Zombie Dominus", "Zombie Parrot", "Zombie Dragon", "Zombie Bear"}
+    },
+    ["Pumpkin Basket"] = {
+        EggName = "Pumpkin Basket",
+        AllPets = {}
+    },
+    ["Frostbite"] = {
+        EggName = "Frostbite",
+        AllPets = {}
+    },
+    ["Crystallica"] = {
+        EggName = "Crystallica",
+        AllPets = {}
+    },
+    ["Raptor Spike"] = {
+        EggName = "Raptor Spike",
+        AllPets = {}
+    },
+    ["Mudstone"] = {
+        EggName = "Mudstone",
+        AllPets = {}
+    },
+    ["Bat"] = {
+        EggName = "Bat",
+        AllPets = {"Chocolate Bat", "Bat", "Diamond Bat", "Ice Bat", "Bat Cat", "Vampire Bat"}
+    },
+    ["Ghost"] = {
+        EggName = "Ghost",
+        AllPets = {"Ghost Dog"}
+    },
+    ["Error"] = {
+        EggName = "Error",
+        AllPets = {"Error Dragon"}
+    },
+    ["Robot"] = {
+        EggName = "Robot",
+        AllPets = {"Robot"}
+    },
+}
