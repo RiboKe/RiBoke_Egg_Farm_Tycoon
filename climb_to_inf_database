@@ -9,6 +9,19 @@ local Players = game:GetService("Players")
 
 local success, EGG_DATABASE = pcall(function()
     return loadstring(game:HttpGet(CONFIG_URL))()
+	-- DEBUG EGG DATABASE CONTENT
+	print("--- [ DEBUG: EGG DATABASE CONTENT ] ---")
+	local count = 0
+	for key, value in pairs(EGG_DATABASE) do
+		count = count + 1
+		print(string.format("[%d] Key: %s | EggName: %s", count, tostring(key), tostring(value.EggName)))
+	end
+
+	if count == 0 then
+		warn("⚠️ ВНИМАНИЕ: Таблица пуста! Проверь синтаксис файла на GitHub.")
+	else
+		print("--- [ Успешно найдено яиц: " .. count .. " ] ---")
+	end
 end)
 
 if not success or type(EGG_DATABASE) ~= "table" then
