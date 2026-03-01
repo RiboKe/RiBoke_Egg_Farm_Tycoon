@@ -1,5 +1,5 @@
 -- [ CLOUD DATABASE LOADER ]
-local CONFIG_URL = "https://raw.githubusercontent.com" .. "?t=" .. math.random(1,1000)
+local CONFIG_URL = "https://raw.githubusercontent.com/RiboKe/RiBoke_Egg_Farm_Tycoon/refs/heads/main/database_cti_all"?t=" .. math.random(1,1000)
 
 local CoreGui = game:GetService("CoreGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
