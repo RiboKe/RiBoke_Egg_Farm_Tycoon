@@ -7,28 +7,26 @@ local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 
-local success, EGG_DATABASE = pcall(function()
+-- [1] ЗАГРУЗКА БАЗЫ ДАННЫХ
+local success, result = pcall(function()
     return loadstring(game:HttpGet(CONFIG_URL))()
-	-- DEBUG EGG DATABASE CONTENT
-	print("--- [ DEBUG: EGG DATABASE CONTENT ] ---")
-	local count = 0
-	for key, value in pairs(EGG_DATABASE) do
-		count = count + 1
-		print(string.format("[%d] Key: %s | EggName: %s", count, tostring(key), tostring(value.EggName)))
-	end
-
-	if count == 0 then
-		warn("⚠️ ВНИМАНИЕ: Таблица пуста! Проверь синтаксис файла на GitHub.")
-	else
-		print("--- [ Успешно найдено яиц: " .. count .. " ] ---")
-	end
 end)
 
-if not success or type(EGG_DATABASE) ~= "table" then
-    warn("not found database.")
-    EGG_DATABASE = {["Error"] = {Name = "None", Delete = {}}}
+local EGG_DATABASE = {}
+if success and type(result) == "table" then
+    EGG_DATABASE = result
+    print("--- [ DEBUG: EGG DATABASE LOADED ] ---")
+    local count = 0
+    for key, value in pairs(EGG_DATABASE) do
+        count = count + 1
+        print(string.format("[%d] Found Egg: %s", count, tostring(key)))
+    end
+else
+    warn("❌ DATABASE NOT FOUND! Check link or syntax.")
+    EGG_DATABASE = {["Error"] = {EggName = "None", PetsToAutoDelete = {}}}
 end
 
+-- [2] НАСТРОЙКИ И СОХРАНЕНИЕ
 local settings = { waitTime = 0.5, selectedEgg = next(EGG_DATABASE) }
 local isActive, isDestroyed, attempts = false, false, 0
 local fileName = "cti_config.json"
@@ -42,8 +40,10 @@ if isfile and isfile(fileName) then
     end) 
 end
 
+-- [3] ИНТЕРФЕЙС
 local screenGui = Instance.new("ScreenGui", (RunService:IsStudio() and Players.LocalPlayer.PlayerGui) or CoreGui)
-screenGui.Name = "PS99_GitHub_Hatcher"
+screenGui.Name = "PS99_Cloud_Hatcher"
+screenGui.ResetOnSpawn = false
 
 local main = Instance.new("Frame", screenGui)
 main.Size, main.Position = UDim2.new(0, 220, 0, 310), UDim2.new(0.5, -110, 0.5, -155)
@@ -60,6 +60,7 @@ local dropBtn = Instance.new("TextButton", main)
 dropBtn.Size, dropBtn.Position = UDim2.new(0.85, 0, 0, 35), UDim2.new(0.075, 0, 0.15, 0)
 dropBtn.Text = settings.selectedEgg .. " ▼"
 dropBtn.BackgroundColor3, dropBtn.TextColor3 = Color3.fromRGB(35, 35, 35), Color3.new(1, 1, 0)
+dropBtn.ZIndex = 5
 Instance.new("UICorner").Parent = dropBtn
 
 local scroll = Instance.new("ScrollingFrame", main)
@@ -67,23 +68,21 @@ scroll.Size, scroll.Position = UDim2.new(0.85, 0, 0, 0), UDim2.new(0.075, 0, 0.2
 scroll.Visible, scroll.ZIndex = false, 10
 scroll.BackgroundColor3, scroll.BorderSizePixel = Color3.fromRGB(25, 25, 25), 0
 scroll.ScrollBarThickness = 3
-Instance.new("UIListLayout", scroll)
+scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y -- Авто-размер под кнопки
+local listLayout = Instance.new("UIListLayout", scroll)
 
+-- [4] СОЗДАНИЕ КНОПОК В СПИСКЕ
 for id, data in pairs(EGG_DATABASE) do
     local b = Instance.new("TextButton", scroll)
     b.Size = UDim2.new(1, 0, 0, 30)
     b.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
     b.BorderSizePixel = 0
-    b.Text = tostring(id) -- Имя яйца из базы
-    b.TextColor3 = Color3.new(1, 1, 1) -- Белый цвет текста
+    b.Text = tostring(id)
+    b.TextColor3 = Color3.new(1, 1, 1)
     b.Font = Enum.Font.GothamSemibold
     b.TextSize = 14
-    b.ZIndex = 12 -- Выше фона скролла
-    b.AutoButtonColor = true -- Чтобы кнопка подсвечивалась при наведении
-
-    -- Эффект при наведении (опционально, для удобства)
-    b.MouseEnter:Connect(function() b.BackgroundColor3 = Color3.fromRGB(60, 60, 60) end)
-    b.MouseLeave:Connect(function() b.BackgroundColor3 = Color3.fromRGB(40, 40, 40) end)
+    b.ZIndex = 12
+    b.AutoButtonColor = true
 
     b.MouseButton1Click:Connect(function()
         settings.selectedEgg = id
@@ -92,17 +91,16 @@ for id, data in pairs(EGG_DATABASE) do
         scroll.Size = UDim2.new(0.85, 0, 0, 0)
         save()
         attempts = 0
-        countL.Text = "Attempts: 0"
+        -- countL обновим ниже в коде
     end)
 end
-
-scroll.CanvasSize = UDim2.new(0, 0, 0, #scroll:GetChildren() * 30)
 
 dropBtn.MouseButton1Click:Connect(function()
     scroll.Visible = not scroll.Visible
     scroll.Size = scroll.Visible and UDim2.new(0.85, 0, 0, 120) or UDim2.new(0.85, 0, 0, 0)
 end)
 
+-- [5] ОСТАЛЬНОЙ UI
 local countL = Instance.new("TextLabel", main)
 countL.Size, countL.Position = UDim2.new(1, 0, 0, 30), UDim2.new(0, 0, 0.35, 0)
 countL.Text, countL.TextColor3, countL.BackgroundTransparency = "Attempts: 0", Color3.new(1, 1, 1), 1
@@ -126,21 +124,30 @@ unloadB.Text, unloadB.BackgroundColor3 = "Unload", Color3.fromRGB(40, 40, 40)
 unloadB.TextColor3 = Color3.new(0.6, 0.6, 0.6)
 Instance.new("UICorner").Parent = unloadB
 
+-- [6] ЛОГИКА КНОПОК
 startB.MouseButton1Click:Connect(function()
     isActive = not isActive
     startB.Text = isActive and "STOP" or "START"
     startB.BackgroundColor3 = isActive and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 0, 0)
 end)
 
-speedI.FocusLost:Connect(function() settings.waitTime = tonumber(speedI.Text) or 0.5; save() end)
-unloadB.MouseButton1Click:Connect(function() isDestroyed = true; screenGui:Destroy() end)
+speedI.FocusLost:Connect(function() 
+    local val = tonumber(speedI.Text)
+    if val then settings.waitTime = val save() end 
+end)
 
+unloadB.MouseButton1Click:Connect(function() 
+    isDestroyed = true 
+    screenGui:Destroy() 
+end)
+
+-- [7] ЦИКЛ РАБОТЫ
 task.spawn(function()
     local remote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("InvokeServerAction")
     while not isDestroyed do
         if isActive then
             local conf = EGG_DATABASE[settings.selectedEgg]
-            if conf then
+            if conf and conf.EggName ~= "None" then
                 pcall(function()
                     remote:InvokeServer("Eggs", "RequestPurchase", {
                         PetsToAutoDelete = conf.PetsToAutoDelete,
