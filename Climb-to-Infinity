@@ -1,4 +1,4 @@
--- скрипт для игры Climb to Infinity. скрипт может открывать самостоятельно яйца, но лишь те, что есть в списке.
+-- скрипт для игры Climb to Infinity. скрипт может открывать самостоятельно яйца, но лишь те что есть в списке.
 local CoreGui = game:GetService("CoreGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -20,7 +20,6 @@ local eggConfigs = {
     ["Toxic"] = { PetsToAutoDelete = {"Alien", "Tech Dog", "Tech Dragon", "Tech Octopus", "Gummy Bear", "Cotton Sheep", "Candy Cow", "Bubblegum Dragon", "Hazmat Dog", "Toxic Slime", "Nuclear Spider", "Radioactive Dragon"}, EggName = "Toxic" }
 }
 
--- Загрузка/Сохранение
 if isfile and isfile(fileName) then
     pcall(function() 
         local data = HttpService:JSONDecode(readfile(fileName))
@@ -31,10 +30,9 @@ end
 
 local function saveSettings() if writefile then writefile(fileName, HttpService:JSONEncode(settings)) end end
 
--- ИНТЕРФЕЙС
 local screenGui = Instance.new("ScreenGui", (RunService:IsStudio() and player.PlayerGui) or CoreGui)
 screenGui.Name = "PS99_FinalFixed"
-screenGui.DisplayOrder = 100 -- Чтобы быть поверх всего
+screenGui.DisplayOrder = 100
 
 local main = Instance.new("Frame", screenGui)
 main.Size = UDim2.new(0, 220, 0, 300)
@@ -52,7 +50,6 @@ title.BackgroundTransparency = 1
 title.Font = Enum.Font.GothamBold
 title.TextSize = 16
 
--- ДРОПДАУН (ФИКС)
 local dropdownBtn = Instance.new("TextButton", main)
 dropdownBtn.Size = UDim2.new(0.85, 0, 0, 35)
 dropdownBtn.Position = UDim2.new(0.075, 0, 0.16, 0)
@@ -64,19 +61,18 @@ dropdownBtn.ZIndex = 10
 Instance.new("UICorner").Parent = dropdownBtn
 
 local itemsList = Instance.new("ScrollingFrame", main)
-itemsList.Size = UDim2.new(0.85, 0, 0, 0) -- Начальная высота 0
+itemsList.Size = UDim2.new(0.85, 0, 0, 0)
 itemsList.Position = UDim2.new(0.075, 0, 0.28, 0)
 itemsList.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 itemsList.BorderSizePixel = 0
 itemsList.Visible = false
-itemsList.ZIndex = 20 -- Выше всех остальных элементов
+itemsList.ZIndex = 20
 itemsList.ScrollBarThickness = 3
 Instance.new("UICorner").Parent = itemsList
 
 local listLayout = Instance.new("UIListLayout", itemsList)
 listLayout.SortOrder = Enum.SortOrder.LayoutOrder
 
--- Наполнение списка
 for name, _ in pairs(eggConfigs) do
     local b = Instance.new("TextButton", itemsList)
     b.Size = UDim2.new(1, 0, 0, 30)
@@ -107,7 +103,6 @@ dropdownBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- Остальное
 local counterLabel = Instance.new("TextLabel", main)
 counterLabel.Size = UDim2.new(1, 0, 0, 30)
 counterLabel.Position = UDim2.new(0, 0, 0.35, 0)
@@ -140,7 +135,6 @@ unloadBtn.Text = "Unload"
 unloadBtn.TextColor3 = Color3.fromRGB(130, 130, 130)
 Instance.new("UICorner").Parent = unloadBtn
 
--- ЛОГИКА ЦИКЛА
 toggleBtn.MouseButton1Click:Connect(function()
     isActive = not isActive
     toggleBtn.Text = isActive and "STOP" or "START"
