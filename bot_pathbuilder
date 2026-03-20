@@ -1,6 +1,9 @@
 -- === PATHBUILDER MODULE ===
 -- Сканирование и построение пути
 
+PathBuilder.VERSION = "0.17"
+PathBuilder.NAME = "PathBuilder"
+
 local PathBuilder = {}
 
 local rayParams = RaycastParams.new()
