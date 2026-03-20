@@ -1,6 +1,9 @@
 -- === MOVEMENT MODULE ===
 -- Ходьба, прыжки, выполнение пути
 
+Movement.VERSION = "0.17"
+Movement.NAME = "Movement"
+
 local Movement = {}
 
 -- Ссылки (устанавливаются из Main)
@@ -346,5 +349,7 @@ function Movement.ExecutePath(path, onProgress)
     
     return true, #path
 end
+
+print("✅ [ObbyBot] " .. Movement.NAME .. " v" .. Movement.VERSION .. " загружен")
 
 return Movement
