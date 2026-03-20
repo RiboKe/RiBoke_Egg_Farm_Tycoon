@@ -1,0 +1,248 @@
+-- === MOVEMENT MODULE ===
+-- Ходьба, прыжки, выполнение пути
+
+local Movement = {}
+
+-- Ссылки (устанавливаются из Main)
+Movement.Humanoid = nil
+Movement.RootPart = nil
+Movement.Character = nil
+Movement.Memory = nil
+Movement.PathBuilder = nil
+Movement.IsActive = function() return false end  -- Функция проверки активности
+Movement.Log = function(text) end  -- Функция логирования
+
+-- Состояние на земле
+function Movement.IsOnGround()
+    if not Movement.Humanoid then return false end
+    local state = Movement.Humanoid:GetState()
+    return state ~= Enum.HumanoidStateType.Jumping and state ~= Enum.HumanoidStateType.Freefall
+end
+
+-- Выполнить прыжок
+function Movement.DoJump()
+    if Movement.IsOnGround() and Movement.Humanoid then
+        Movement.Humanoid.Jump = true
+        return true
+    end
+    return false
+end
+
+-- Выполнить прыжок между двумя точками
+function Movement.ExecuteJump(startNode, landNode)
+    if not Movement.Humanoid or not Movement.RootPart then return false end
+    
+    local startPos = startNode.position
+    local landPos = landNode.position
+    
+    Movement.Log(string.format("🦘 %s", startNode.description or "Прыжок"))
+    
+    -- Фаза 1: Подход к точке старта
+    Movement.Humanoid:MoveTo(startPos)
+    
+    local approachStart = tick()
+    local lastPos = Movement.RootPart.Position
+    local stuckCounter = 0
+    
+    while tick() - approachStart < 4 do
+        if not Movement.IsActive() or Movement.Humanoid.Health <= 0 then return false end
+        
+        local distToStart = (startPos - Movement.RootPart.Position).Magnitude
+        if distToStart < 3 then break end
+        
+        local moved = (Movement.RootPart.Position - lastPos).Magnitude
+        if moved < 0.2 then
+            stuckCounter = stuckCounter + 1
+            if stuckCounter > 3 then
+                break  -- Застряли — прыгаем сразу
+            end
+        else
+            stuckCounter = 0
+        end
+        lastPos = Movement.RootPart.Position
+        
+        Movement.Humanoid:MoveTo(startPos)
+        task.wait(0.1)
+    end
+    
+    -- Фаза 2: Разбег
+    Movement.Humanoid:MoveTo(landPos)
+    task.wait(0.1)
+    
+    -- Фаза 3: Прыжок
+    local jumpAttempts = 0
+    while jumpAttempts < 5 do
+        if Movement.DoJump() then break end
+        jumpAttempts = jumpAttempts + 1
+        task.wait(0.05)
+    end
+    
+    -- Фаза 4: Полёт
+    local airTime = 0
+    while airTime < 2.5 do
+        if not Movement.IsActive() or Movement.Humanoid.Health <= 0 then return false end
+        
+        Movement.Humanoid:MoveTo(landPos)
+        
+        if airTime > 0.2 and Movement.IsOnGround() then
+            break
+        end
+        
+        task.wait(0.05)
+        airTime = airTime + 0.05
+    end
+    
+    task.wait(0.15)
+    
+    -- Проверяем успех
+    local horizontalDist = Vector2.new(
+        landPos.X - Movement.RootPart.Position.X,
+        landPos.Z - Movement.RootPart.Position.Z
+    ).Magnitude
+    
+    local success = horizontalDist < 8
+    
+    -- Если успешно — отмечаем как безопасную зону
+    if success and Movement.Memory then
+        Movement.Memory.AddSafeZone(Movement.RootPart.Position)
+    end
+    
+    return success
+end
+
+-- Ходьба с автоматическими прыжками через препятствия
+function Movement.ExecuteWalk(node)
+    if not Movement.Humanoid or not Movement.RootPart then return false end
+    
+    local targetPos = node.position
+    
+    Movement.Log(string.format("🚶 %s", node.description or "Иду"))
+    
+    Movement.Humanoid:MoveTo(targetPos)
+    
+    local startTime = tick()
+    local lastPos = Movement.RootPart.Position
+    local stuckTime = 0
+    local lastJumpTime = 0
+    
+    while tick() - startTime < 8 do
+        if not Movement.IsActive() or Movement.Humanoid.Health <= 0 then return false end
+        
+        local horizontalDist = Vector2.new(
+            targetPos.X - Movement.RootPart.Position.X,
+            targetPos.Z - Movement.RootPart.Position.Z
+        ).Magnitude
+        
+        if horizontalDist < 2.5 then
+            -- Успешно дошли — отмечаем
+            if Movement.Memory then
+                Movement.Memory.AddSafeZone(Movement.RootPart.Position)
+            end
+            return true
+        end
+        
+        local dirToTarget = (targetPos - Movement.RootPart.Position)
+        local horizontalDir = Vector3.new(dirToTarget.X, 0, dirToTarget.Z)
+        if horizontalDir.Magnitude > 0.1 then
+            horizontalDir = horizontalDir.Unit
+        end
+        
+        -- Проверяем стену впереди
+        if Movement.PathBuilder then
+            local wall = Movement.PathBuilder.FindWallAhead(Movement.RootPart.Position, horizontalDir, 3)
+            if wall and wall.distance < 2.5 and wall.height <= 7 and wall.height > 0.5 then
+                if tick() - lastJumpTime > 0.5 and Movement.IsOnGround() then
+                    Movement.Log(string.format("🦘 Через стену (%.1fм)", wall.height))
+                    Movement.Humanoid:MoveTo(targetPos)
+                    task.wait(0.05)
+                    Movement.DoJump()
+                    lastJumpTime = tick()
+                    task.wait(0.3)
+                    stuckTime = 0
+                end
+            end
+        end
+        
+        -- Проверка застревания
+        local moved = (Movement.RootPart.Position - lastPos).Magnitude
+        if moved < 0.25 then
+            stuckTime = stuckTime + 0.1
+            
+            if stuckTime > 0.3 and tick() - lastJumpTime > 0.5 then
+                if Movement.PathBuilder then
+                    local nearWall = Movement.PathBuilder.FindWallAhead(Movement.RootPart.Position, horizontalDir, 2)
+                    if nearWall and Movement.IsOnGround() then
+                        Movement.Log("🦘 Прыгаю (стена)")
+                        Movement.Humanoid:MoveTo(targetPos)
+                        task.wait(0.05)
+                        Movement.DoJump()
+                        lastJumpTime = tick()
+                        task.wait(0.35)
+                        stuckTime = 0
+                    elseif Movement.IsOnGround() and stuckTime > 0.6 then
+                        Movement.Log("🦘 Прыгаю (застрял)")
+                        Movement.DoJump()
+                        lastJumpTime = tick()
+                        task.wait(0.3)
+                        stuckTime = 0
+                    end
+                else
+                    if Movement.IsOnGround() and stuckTime > 0.5 then
+                        Movement.DoJump()
+                        lastJumpTime = tick()
+                        task.wait(0.3)
+                        stuckTime = 0
+                    end
+                end
+            end
+        else
+            stuckTime = 0
+            lastPos = Movement.RootPart.Position
+        end
+        
+        Movement.Humanoid:MoveTo(targetPos)
+        task.wait(0.1)
+    end
+    
+    return (targetPos - Movement.RootPart.Position).Magnitude < 5
+end
+
+-- Выполнить весь путь
+function Movement.ExecutePath(path, onProgress)
+    local i = 1
+    while i <= #path do
+        if not Movement.IsActive() then return false, i end
+        if not Movement.Humanoid or Movement.Humanoid.Health <= 0 then return false, i end
+        
+        local node = path[i]
+        
+        if onProgress then
+            onProgress(i, #path)
+        end
+        
+        local success = false
+        
+        if node.type == "jump_start" and i < #path then
+            local landNode = path[i + 1]
+            success = Movement.ExecuteJump(node, landNode)
+            if success then
+                i = i + 2
+            else
+                return false, i
+            end
+        elseif node.type == "jump_land" then
+            i = i + 1
+        else
+            success = Movement.ExecuteWalk(node)
+            if success then
+                i = i + 1
+            else
+                return false, i
+            end
+        end
+    end
+    
+    return true, #path
+end
+
+return Movement
