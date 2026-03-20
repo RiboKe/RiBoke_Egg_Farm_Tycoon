@@ -1,6 +1,6 @@
--- === PATH BUILDER V0.22 ===
+-- === PATH BUILDER V0.30 - FIXED JUMP OVER KILL ZONES ===
 local PathBuilder = {}
-PathBuilder.VERSION = "0.22"
+PathBuilder.VERSION = "0.22.1"
 
 PathBuilder.Character = nil
 PathBuilder.Memory = nil
@@ -12,6 +12,10 @@ local MAX_JUMP_HEIGHT = 18
 local MIN_PLATFORM_SIZE = 1
 local WALK_POINT_SPACING = 4
 
+-- Новые константы для kill-зон
+local KILL_ZONE_DETECTION_RADIUS = 8  -- Радиус поиска kill-блоков между точками
+local JUMP_OVER_KILL_MARGIN = 2       -- Дополнительная высота прыжка над kill-блоком
+
 local FailedDirections = {}
 local FAILED_DIR_TIMEOUT = 30
 
@@ -22,28 +26,93 @@ local function isValidPlatform(part)
     if part.Transparency >= 1 then return false end
     if part.Size.X < MIN_PLATFORM_SIZE and part.Size.Z < MIN_PLATFORM_SIZE then return false end
 
-    if PathBuilder.Memory and PathBuilder.Memory.IsPartDangerous then
-        if PathBuilder.Memory.IsPartDangerous(part.Name) then
-            return false
-        end
-    end
+    -- НЕ проверяем IsPartDangerous здесь - это для определения платформ, не kill-зон
+    -- Kill-зоны обрабатываются отдельно
 
     return true
 end
 
-local function getSurfaceY(pos, character)
-    local ray = Ray.new(pos + Vector3.new(0, 5, 0), Vector3.new(0, -RAY_DOWN_DIST, 0))
-    local hit, hitPos = workspace:FindPartOnRay(ray, character)
+-- Проверка является ли часть kill-блоком (на основе памяти)
+local function isKillPart(part)
+    if not part then return false end
+    if PathBuilder.Memory and PathBuilder.Memory.IsPartDangerous then
+        return PathBuilder.Memory.IsPartDangerous(part.Name)
+    end
+    return false
+end
 
-    if hit and isValidPlatform(hit) then
-        return hitPos.Y, hit
+local function getSurfaceY(pos, character)
+    local rayOrigin = pos + Vector3.new(0, 5, 0)
+    local rayDirection = Vector3.new(0, -RAY_DOWN_DIST, 0)
+    
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {character}
+    
+    local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+    
+    if result and result.Instance and isValidPlatform(result.Instance) then
+        return result.Position.Y, result.Instance
     end
     return nil, nil
 end
 
-local function isPositionSafe(pos, character)
-    if PathBuilder.Memory and PathBuilder.Memory.IsPositionDangerous then
-        local dangerous, partName = PathBuilder.Memory.IsPositionDangerous(pos)
+-- === НОВАЯ ФУНКЦИЯ: Проверка kill-блоков между двумя точками ===
+local function hasKillBlockBetween(fromPos, toPos, character)
+    local direction = toPos - fromPos
+    local distance = direction.Magnitude
+    if distance < 1 then return false, nil end
+    
+    local dirUnit = direction.Unit
+    local steps = math.ceil(distance / 2) -- Проверяем каждые 2 studs
+    
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {character}
+    
+    for i = 1, steps do
+        local checkPos = fromPos + dirUnit * (i * 2)
+        
+        -- Рейкаст вниз чтобы найти что под этой точкой пути
+        local rayOrigin = Vector3.new(checkPos.X, math.max(fromPos.Y, toPos.Y) + 3, checkPos.Z)
+        local rayDirection = Vector3.new(0, -10, 0)
+        
+        local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+        
+        if result and result.Instance then
+            if isKillPart(result.Instance) then
+                return true, result.Instance
+            end
+        end
+        
+        -- Также проверяем горизонтальный рейкаст на наличие kill-блоков
+        local horizResult = workspace:Raycast(
+            fromPos + Vector3.new(0, 1, 0), 
+            dirUnit * (i * 2), 
+            raycastParams
+        )
+        
+        if horizResult and horizResult.Instance then
+            if isKillPart(horizResult.Instance) then
+                return true, horizResult.Instance
+            end
+        end
+    end
+    
+    return false, nil
+end
+
+-- === НОВАЯ ФУНКЦИЯ: Проверка безопасности для ходьбы (не для прыжков) ===
+local function isPositionSafeForWalk(pos, character)
+    -- Проверяем kill-зоны только для ХОДЬБЫ
+    if PathBuilder.Memory and PathBuilder.Memory.IsPositionDangerousForWalk then
+        local dangerous = PathBuilder.Memory.IsPositionDangerousForWalk(pos)
+        if dangerous then
+            return false, nil
+        end
+    elseif PathBuilder.Memory and PathBuilder.Memory.IsPositionDangerous then
+        -- Fallback на старую функцию
+        local dangerous = PathBuilder.Memory.IsPositionDangerous(pos)
         if dangerous then
             return false, nil
         end
@@ -55,8 +124,28 @@ local function isPositionSafe(pos, character)
     return true, platform
 end
 
--- === СКАНИРОВАНИЕ ===
-local function scanPlatformsAround(centerPos, radius, targetPos, character)
+-- === НОВАЯ ФУНКЦИЯ: Проверка безопасности точки приземления ===
+local function isLandingSafe(pos, character)
+    -- Для приземления проверяем только саму точку, не окрестности
+    if PathBuilder.Memory and PathBuilder.Memory.IsLandingPositionSafe then
+        if not PathBuilder.Memory.IsLandingPositionSafe(pos) then
+            return false, nil
+        end
+    end
+    
+    local y, platform = getSurfaceY(pos, character)
+    if not y then return false, nil end
+    
+    -- Проверяем что платформа приземления не kill-блок
+    if platform and isKillPart(platform) then
+        return false, nil
+    end
+
+    return true, platform
+end
+
+-- === СКАНИРОВАНИЕ (ИСПРАВЛЕННОЕ) ===
+local function scanPlatformsAround(centerPos, radius, targetPos, character, includeJumpTargets)
     local platforms = {}
     local stepSize = 3
 
@@ -69,7 +158,14 @@ local function scanPlatformsAround(centerPos, radius, targetPos, character)
                 math.sin(rad) * dist
             )
 
-            local safe, platform = isPositionSafe(checkPos, character)
+            -- Для прыжков используем isLandingSafe, для ходьбы - isPositionSafeForWalk
+            local safe, platform
+            if includeJumpTargets then
+                safe, platform = isLandingSafe(checkPos, character)
+            else
+                safe, platform = isPositionSafeForWalk(checkPos, character)
+            end
+            
             if safe and platform then
                 local surfaceY = getSurfaceY(checkPos, character)
                 if surfaceY then
@@ -91,11 +187,16 @@ local function scanPlatformsAround(centerPos, radius, targetPos, character)
                     end
 
                     if not isFailedDir then
+                        -- Проверяем есть ли kill-блок между текущей позицией и платформой
+                        local hasKill, killBlock = hasKillBlockBetween(centerPos, platformPos, character)
+                        
                         table.insert(platforms, {
                             position = platformPos,
                             platform = platform,
                             distToTarget = distToTarget,
-                            distFromMe = dist
+                            distFromMe = dist,
+                            hasKillBlockBetween = hasKill,
+                            killBlock = killBlock
                         })
                     end
                 end
@@ -110,37 +211,62 @@ local function scanPlatformsAround(centerPos, radius, targetPos, character)
     return platforms
 end
 
--- === ТИП ПЕРЕМЕЩЕНИЯ ===
-local function getMovementType(fromPos, toPos, character)
+-- === ТИП ПЕРЕМЕЩЕНИЯ (ИСПРАВЛЕННЫЙ) ===
+local function getMovementType(fromPos, toPos, character, forceCheckKillBlocks)
     local horizontalDist = ((toPos - fromPos) * Vector3.new(1, 0, 1)).Magnitude
     local verticalDiff = toPos.Y - fromPos.Y
+    
+    -- НОВОЕ: Проверяем есть ли kill-блок между точками
+    local hasKillBlock, killBlock = hasKillBlockBetween(fromPos, toPos, character)
+    
+    if hasKillBlock then
+        -- Если между точками есть kill-блок - ТОЛЬКО прыжок!
+        if horizontalDist < MAX_JUMP_DIST and verticalDiff < MAX_JUMP_HEIGHT and verticalDiff > -MAX_JUMP_HEIGHT then
+            return "jump", killBlock
+        else
+            return "impossible", killBlock
+        end
+    end
 
+    -- Стандартная логика для случаев без kill-блоков
     if horizontalDist < MAX_WALK_DIST and math.abs(verticalDiff) < 3 then
         local direction = toPos - fromPos
         if direction.Magnitude > 0.1 then
-            local ray = Ray.new(fromPos, direction.Unit * horizontalDist)
-            local hit = workspace:FindPartOnRay(ray, character)
+            local raycastParams = RaycastParams.new()
+            raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+            raycastParams.FilterDescendantsInstances = {character}
+            
+            local result = workspace:Raycast(fromPos, direction.Unit * horizontalDist, raycastParams)
 
-            if not hit then
-                return "walk"
+            if not result then
+                return "walk", nil
             end
-            if hit and hit.CanCollide then
-                -- Проверяем не слишком ли высоко перекрытие
-                if hit.Position.Y <= fromPos.Y + 3 then
-                    return "walk"
+            if result and result.Instance and result.Instance.CanCollide then
+                -- Проверяем это kill-блок?
+                if isKillPart(result.Instance) then
+                    -- Нужен прыжок через kill-блок
+                    if horizontalDist < MAX_JUMP_DIST then
+                        return "jump", result.Instance
+                    else
+                        return "impossible", result.Instance
+                    end
+                end
+                -- Обычное препятствие - можно обойти если низкое
+                if result.Instance.Position.Y <= fromPos.Y + 3 then
+                    return "walk", nil
                 end
             end
         end
     end
 
     if horizontalDist < MAX_JUMP_DIST and verticalDiff < MAX_JUMP_HEIGHT and verticalDiff > -MAX_JUMP_HEIGHT then
-        return "jump"
+        return "jump", nil
     end
 
-    return "impossible"
+    return "impossible", nil
 end
 
--- === ПОСТРОЕНИЕ ПУТИ ===
+-- === ПОСТРОЕНИЕ ПУТИ (ИСПРАВЛЕННОЕ) ===
 function PathBuilder.BuildPath(startPos, targetPos, aggressive)
     local path = {}
     local currentPos = startPos
@@ -156,8 +282,9 @@ function PathBuilder.BuildPath(startPos, targetPos, aggressive)
             return path
         end
 
+        -- Сканируем с включением целей для прыжков (includeJumpTargets = true)
         local scanRadius = aggressive and 25 or 20
-        local platforms = scanPlatformsAround(currentPos, scanRadius, targetPos, character)
+        local platforms = scanPlatformsAround(currentPos, scanRadius, targetPos, character, true)
 
         if #platforms == 0 then
             print("[PathBuilder] Нет платформ на шаге " .. step)
@@ -167,42 +294,58 @@ function PathBuilder.BuildPath(startPos, targetPos, aggressive)
         local bestPlatform = nil
 
         for _, plat in ipairs(platforms) do
-            local key = PathBuilder.Memory and PathBuilder.Memory.Vec3ToKey and PathBuilder.Memory.Vec3ToKey(plat.position) or tostring(plat.position)
+            local key = string.format("%.0f_%.0f_%.0f", plat.position.X, plat.position.Y, plat.position.Z)
 
             if not visited[key] then
-                local moveType = getMovementType(currentPos, plat.position, character)
+                local moveType, killBlock = getMovementType(currentPos, plat.position, character, true)
 
                 if moveType ~= "impossible" then
                     bestPlatform = plat
                     bestPlatform.moveType = moveType
+                    bestPlatform.requiresJumpOverKill = (killBlock ~= nil)
                     break
                 end
             end
         end
 
+        -- Fallback: если ничего не нашли, пробуем принудительный прыжок
         if not bestPlatform then
             for _, plat in ipairs(platforms) do
-                local key = PathBuilder.Memory and PathBuilder.Memory.Vec3ToKey and PathBuilder.Memory.Vec3ToKey(plat.position) or tostring(plat.position)
+                local key = string.format("%.0f_%.0f_%.0f", plat.position.X, plat.position.Y, plat.position.Z)
 
                 if not visited[key] then
-                    bestPlatform = plat
-                    bestPlatform.moveType = "jump"
-                    break
+                    -- Проверяем можно ли приземлиться
+                    local landSafe = isLandingSafe(plat.position, character)
+                    if landSafe then
+                        bestPlatform = plat
+                        bestPlatform.moveType = "jump"
+                        bestPlatform.requiresJumpOverKill = plat.hasKillBlockBetween
+                        break
+                    end
                 end
             end
         end
 
         if not bestPlatform then
-            print("[PathBuilder] Все платформы посещены")
+            print("[PathBuilder] Все платформы посещены или недостижимы")
             return path
         end
 
-        local visitKey = PathBuilder.Memory and PathBuilder.Memory.Vec3ToKey and PathBuilder.Memory.Vec3ToKey(bestPlatform.position) or tostring(bestPlatform.position)
+        local visitKey = string.format("%.0f_%.0f_%.0f", bestPlatform.position.X, bestPlatform.position.Y, bestPlatform.position.Z)
         visited[visitKey] = true
 
         if bestPlatform.moveType == "jump" then
-            table.insert(path, {position = currentPos, type = "jump_start"})
-            table.insert(path, {position = bestPlatform.position, type = "jump_land"})
+            -- Добавляем метаданные о kill-блоке для Movement системы
+            table.insert(path, {
+                position = currentPos, 
+                type = "jump_start",
+                jumpOverKill = bestPlatform.requiresJumpOverKill
+            })
+            table.insert(path, {
+                position = bestPlatform.position, 
+                type = "jump_land",
+                jumpOverKill = bestPlatform.requiresJumpOverKill
+            })
         else
             table.insert(path, {position = bestPlatform.position, type = "walk"})
         end
@@ -217,13 +360,6 @@ function PathBuilder.BuildAlternativePath(startPos, targetPos)
     local dirToTarget = (targetPos - startPos).Unit
     PathBuilder.AddFailedDirection(startPos, dirToTarget)
 
-    -- Добавляем ещё случайных блокировок
-    for i = 1, 3 do
-        local angle = math.random() * math.pi * 2
-        local randomDir = Vector3.new(math.cos(angle), 0, math.sin(angle))
-        PathBuilder.AddFailedDirection(startPos, randomDir)
-    end
-
     local path = PathBuilder.BuildPath(startPos, targetPos, true)
     return path
 end
@@ -236,6 +372,7 @@ function PathBuilder.AddFailedDirection(fromPos, direction)
         time = tick()
     })
 
+    -- Чистим старые записи
     local newList = {}
     for _, fd in ipairs(FailedDirections) do
         if tick() - (fd.time or 0) < FAILED_DIR_TIMEOUT then
@@ -243,10 +380,37 @@ function PathBuilder.AddFailedDirection(fromPos, direction)
         end
     end
     FailedDirections = newList
+    
+    -- Лимит на количество
+    if #FailedDirections > 20 then
+        local trimmed = {}
+        for i = #FailedDirections - 19, #FailedDirections do
+            table.insert(trimmed, FailedDirections[i])
+        end
+        FailedDirections = trimmed
+    end
 end
 
 function PathBuilder.ResetFailedDirections()
     FailedDirections = {}
+end
+
+function PathBuilder.GetFailedDirectionsCount()
+    return #FailedDirections
+end
+
+-- === НОВАЯ ФУНКЦИЯ: Проверка нужен ли прыжок к цели ===
+function PathBuilder.NeedsJumpTo(fromPos, toPos, character)
+    character = character or PathBuilder.Character
+    local moveType, killBlock = getMovementType(fromPos, toPos, character, true)
+    return moveType == "jump", killBlock ~= nil
+end
+
+-- === НОВАЯ ФУНКЦИЯ: Получить информацию о kill-блоках на пути ===
+function PathBuilder.GetKillBlocksOnPath(fromPos, toPos, character)
+    character = character or PathBuilder.Character
+    local hasKill, killBlock = hasKillBlockBetween(fromPos, toPos, character)
+    return hasKill, killBlock
 end
 
 return PathBuilder
