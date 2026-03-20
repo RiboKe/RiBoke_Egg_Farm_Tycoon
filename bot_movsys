@@ -1,7 +1,7 @@
--- === MOVEMENT MODULE v0.18 ===
+-- === MOVEMENT MODULE v0.19 ===
 local Movement = {}
 
-Movement.VERSION = "0.18"
+Movement.VERSION = "0.19"
 Movement.NAME = "Movement"
 
 Movement.Humanoid = nil
@@ -20,22 +20,20 @@ function Movement.IsOnGround()
         and state ~= Enum.HumanoidStateType.Climbing
 end
 
--- ИСПРАВЛЕННЫЙ ПРЫЖОК
 function Movement.DoJump()
     if not Movement.Humanoid then return false end
     
-    -- Способ 1: Стандартный
     Movement.Humanoid.Jump = true
     
-    -- Способ 2: Через состояние
     task.spawn(function()
         task.wait(0.02)
         if Movement.Humanoid then
-            Movement.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            pcall(function()
+                Movement.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end)
         end
     end)
     
-    -- Способ 3: Повторные попытки
     task.spawn(function()
         for i = 1, 5 do
             task.wait(0.05)
@@ -48,23 +46,19 @@ function Movement.DoJump()
     return true
 end
 
--- Принудительный прыжок с ожиданием результата
 function Movement.ForceJump(targetPos)
     if not Movement.Humanoid or not Movement.RootPart then return false end
     
     local startY = Movement.RootPart.Position.Y
     local jumped = false
     
-    -- Направляемся к цели
     if targetPos then
         Movement.Humanoid:MoveTo(targetPos)
     end
     
-    -- Пробуем прыгнуть несколько раз
     for attempt = 1, 15 do
         if not Movement.IsActive() then return false end
         
-        -- Проверяем, начался ли прыжок
         local currentY = Movement.RootPart.Position.Y
         local state = Movement.Humanoid:GetState()
         
@@ -78,7 +72,6 @@ function Movement.ForceJump(targetPos)
             break
         end
         
-        -- Пробуем разные способы прыжка
         Movement.Humanoid.Jump = true
         
         if attempt > 3 then
@@ -88,7 +81,6 @@ function Movement.ForceJump(targetPos)
         end
         
         if attempt > 6 then
-            -- Пробуем отойти чуть назад и снова
             local backDir = -Movement.RootPart.CFrame.LookVector
             Movement.Humanoid:MoveTo(Movement.RootPart.Position + backDir * 2)
             task.wait(0.1)
@@ -120,6 +112,14 @@ function Movement.WaitForLanding(timeout)
     return Movement.IsOnGround()
 end
 
+-- Raycast утилиты
+local function getRayParams()
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+    rayParams.FilterDescendantsInstances = {Movement.Character}
+    return rayParams
+end
+
 local function checkWallAhead(position, direction, maxDist)
     if not Movement.Character then return nil end
     
@@ -128,9 +128,7 @@ local function checkWallAhead(position, direction, maxDist)
     if direction.Magnitude < 0.1 then return nil end
     direction = direction.Unit
     
-    local rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Blacklist
-    rayParams.FilterDescendantsInstances = {Movement.Character}
+    local rayParams = getRayParams()
     
     for _, height in ipairs({0.3, 1.0, 2.0}) do
         local origin = position + Vector3.new(0, height, 0)
@@ -152,6 +150,161 @@ local function checkWallAhead(position, direction, maxDist)
     end
     
     return nil
+end
+
+-- НОВОЕ: Проверка можно ли обойти стену сбоку
+local function findWallBypass(position, wallDirection, targetPos)
+    if not Movement.Character then return nil end
+    
+    local rayParams = getRayParams()
+    
+    -- Направления: лево и право от стены
+    local leftDir = Vector3.new(-wallDirection.Z, 0, wallDirection.X).Unit
+    local rightDir = Vector3.new(wallDirection.Z, 0, -wallDirection.X).Unit
+    
+    local bypassOptions = {}
+    
+    for _, sideData in ipairs({{dir = leftDir, name = "left"}, {dir = rightDir, name = "right"}}) do
+        local sideDir = sideData.dir
+        
+        -- Проверяем на разных дистанциях сбоку
+        for sideDist = 3, 12, 3 do
+            local sidePos = position + sideDir * sideDist
+            
+            -- Проверяем есть ли пол сбоку
+            local floorRay = workspace:Raycast(
+                sidePos + Vector3.new(0, 5, 0), 
+                Vector3.new(0, -15, 0), 
+                rayParams
+            )
+            
+            if floorRay then
+                local floorPos = floorRay.Position + Vector3.new(0, 3, 0)
+                
+                -- Проверяем нет ли стены между нами и этой точкой
+                local pathRay = workspace:Raycast(
+                    position + Vector3.new(0, 1, 0),
+                    (sidePos - position),
+                    rayParams
+                )
+                
+                local pathClear = not pathRay or (pathRay.Position - position).Magnitude > sideDist - 1
+                
+                if pathClear then
+                    -- Проверяем можно ли оттуда идти к цели
+                    local toTargetDir = (targetPos - floorPos)
+                    local toTargetDist = toTargetDir.Magnitude
+                    
+                    if toTargetDist > 0.1 then
+                        toTargetDir = toTargetDir.Unit
+                        
+                        -- Проверяем нет ли стены между боковой точкой и целью
+                        local forwardWall = checkWallAhead(floorPos, toTargetDir, 5)
+                        
+                        -- Проверяем безопасность точки
+                        local isDangerous = false
+                        if Movement.Memory then
+                            isDangerous = Movement.Memory.IsDeathZone(floorPos)
+                        end
+                        
+                        if not isDangerous then
+                            local score = 0
+                            
+                            -- Бонус если нет стены впереди
+                            if not forwardWall then
+                                score = score + 10
+                            end
+                            
+                            -- Бонус за близость к цели
+                            local distToTarget = (targetPos - floorPos).Magnitude
+                            local currentDistToTarget = (targetPos - position).Magnitude
+                            if distToTarget < currentDistToTarget then
+                                score = score + 5
+                            end
+                            
+                            -- Штраф за дальность обхода
+                            score = score - sideDist * 0.5
+                            
+                            table.insert(bypassOptions, {
+                                position = floorPos,
+                                distance = sideDist,
+                                side = sideData.name,
+                                score = score,
+                                hasWallAhead = forwardWall ~= nil
+                            })
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Сортируем по score (лучшие первые)
+    table.sort(bypassOptions, function(a, b)
+        return a.score > b.score
+    end)
+    
+    -- Возвращаем лучший вариант
+    if #bypassOptions > 0 then
+        return bypassOptions[1]
+    end
+    
+    return nil
+end
+
+-- НОВОЕ: Попытка обойти препятствие
+function Movement.TryBypass(targetPos)
+    if not Movement.RootPart then return false end
+    
+    local dirToTarget = (targetPos - Movement.RootPart.Position)
+    local horizontalDir = Vector3.new(dirToTarget.X, 0, dirToTarget.Z)
+    if horizontalDir.Magnitude < 0.1 then return false end
+    horizontalDir = horizontalDir.Unit
+    
+    -- Ищем обход
+    local bypass = findWallBypass(Movement.RootPart.Position, horizontalDir, targetPos)
+    
+    if bypass then
+        Movement.Log(string.format("↪️ Обхожу %s (%.1fм)", bypass.side == "left" and "слева" or "справа", bypass.distance))
+        
+        -- Идём к боковой точке
+        Movement.Humanoid:MoveTo(bypass.position)
+        
+        local startTime = tick()
+        local lastPos = Movement.RootPart.Position
+        
+        while tick() - startTime < 4 do
+            if not Movement.IsActive() or Movement.Humanoid.Health <= 0 then
+                return false
+            end
+            
+            local dist = (bypass.position - Movement.RootPart.Position).Magnitude
+            if dist < 2 then
+                Movement.Log("✓ Обход успешен")
+                return true
+            end
+            
+            -- Проверяем застревание
+            local moved = (Movement.RootPart.Position - lastPos).Magnitude
+            if moved < 0.1 then
+                -- Застряли при обходе — может нужен прыжок
+                if Movement.IsOnGround() then
+                    Movement.Humanoid.Jump = true
+                    task.wait(0.3)
+                end
+            end
+            lastPos = Movement.RootPart.Position
+            
+            Movement.Humanoid:MoveTo(bypass.position)
+            task.wait(0.1)
+        end
+        
+        -- Проверяем частичный успех
+        local finalDist = (bypass.position - Movement.RootPart.Position).Magnitude
+        return finalDist < 5
+    end
+    
+    return false
 end
 
 function Movement.ExecuteJump(startNode, landNode)
@@ -182,7 +335,6 @@ function Movement.ExecuteJump(startNode, landNode)
             if moved < 0.15 then
                 stuckTime = stuckTime + 0.1
                 if stuckTime > 0.4 then
-                    -- Застряли — прыгаем отсюда
                     break
                 end
             else
@@ -199,7 +351,6 @@ function Movement.ExecuteJump(startNode, landNode)
     Movement.Log("🏃 Разбег...")
     Movement.Humanoid:MoveTo(landPos)
     
-    -- Ждём пока персонаж начнёт двигаться
     local moveStart = tick()
     while tick() - moveStart < 0.3 do
         task.wait(0.05)
@@ -228,19 +379,14 @@ function Movement.ExecuteJump(startNode, landNode)
     while tick() - flightStart < maxFlightTime do
         if not Movement.IsActive() or Movement.Humanoid.Health <= 0 then return false end
         
-        -- Продолжаем направляться к цели
         Movement.Humanoid:MoveTo(landPos)
         
-        -- Проверяем состояние
         local currentY = Movement.RootPart.Position.Y
-        local state = Movement.Humanoid:GetState()
         
-        -- Отслеживаем пик прыжка
         if currentY > startY + 2 then
             reachedPeak = true
         end
         
-        -- Проверяем приземление (после начала падения)
         if reachedPeak or tick() - flightStart > 0.3 then
             if Movement.IsOnGround() then
                 break
@@ -252,7 +398,6 @@ function Movement.ExecuteJump(startNode, landNode)
     
     task.wait(0.15)
     
-    -- Проверяем успех
     local horizontalDist = Vector2.new(
         landPos.X - Movement.RootPart.Position.X,
         landPos.Z - Movement.RootPart.Position.Z
@@ -286,6 +431,7 @@ function Movement.ExecuteWalk(node)
     local stuckTime = 0
     local lastJumpTime = 0
     local jumpCooldown = 0.5
+    local bypassAttempted = false
     
     while tick() - startTime < 10 do
         if not Movement.IsActive() or Movement.Humanoid.Health <= 0 then return false end
@@ -311,25 +457,62 @@ function Movement.ExecuteWalk(node)
         -- Проверяем стену впереди
         local wall = checkWallAhead(Movement.RootPart.Position, horizontalDir, 2.5)
         
-        if wall and wall.distance < 2.0 and wall.height > 0.5 and wall.height <= 7.5 then
-            if canJump then
-                Movement.Log(string.format("🦘 Стена %.1fм", wall.height))
+        if wall and wall.distance < 2.0 and wall.height > 0.5 then
+            -- НОВОЕ: Сначала пробуем обойти, потом прыгать
+            if wall.height <= 7.5 then
+                -- Стена невысокая — сначала пробуем обход
+                if not bypassAttempted then
+                    Movement.Log(string.format("🧱 Стена %.1fм — ищу обход...", wall.height))
+                    
+                    local bypassed = Movement.TryBypass(targetPos)
+                    bypassAttempted = true
+                    
+                    if bypassed then
+                        -- Обход удался — продолжаем к цели
+                        stuckTime = 0
+                        lastPos = Movement.RootPart.Position
+                        Movement.Humanoid:MoveTo(targetPos)
+                        continue
+                    else
+                        -- Обход не удался — прыгаем
+                        Movement.Log("❌ Обход не найден, прыгаю...")
+                    end
+                end
                 
-                -- Небольшой разбег
-                Movement.Humanoid:MoveTo(targetPos)
-                task.wait(0.1)
+                -- Прыгаем
+                if canJump then
+                    Movement.Log(string.format("🦘 Прыгаю через стену (%.1fм)", wall.height))
+                    
+                    Movement.Humanoid:MoveTo(targetPos)
+                    task.wait(0.1)
+                    Movement.ForceJump(targetPos)
+                    lastJumpTime = tick()
+                    
+                    Movement.WaitForLanding(2)
+                    stuckTime = 0
+                    lastPos = Movement.RootPart.Position
+                    bypassAttempted = false  -- Сброс для следующей стены
+                    
+                    continue
+                end
+            else
+                -- Стена слишком высокая — только обход
+                Movement.Log(string.format("🧱 Стена слишком высокая (%.1fм) — ищу обход", wall.height))
                 
-                -- Прыжок
-                Movement.ForceJump(targetPos)
-                lastJumpTime = tick()
+                local bypassed = Movement.TryBypass(targetPos)
                 
-                -- Ждём приземления
-                Movement.WaitForLanding(2)
-                stuckTime = 0
-                lastPos = Movement.RootPart.Position
-                
-                continue
+                if bypassed then
+                    stuckTime = 0
+                    lastPos = Movement.RootPart.Position
+                    Movement.Humanoid:MoveTo(targetPos)
+                    continue
+                else
+                    Movement.Log("❌ Не могу обойти высокую стену")
+                    return false
+                end
             end
+        else
+            bypassAttempted = false  -- Сброс когда нет стены
         end
         
         -- Проверка застревания
@@ -342,20 +525,35 @@ function Movement.ExecuteWalk(node)
                 local nearWall = checkWallAhead(Movement.RootPart.Position, horizontalDir, 1.5)
                 
                 if nearWall then
-                    Movement.Log(string.format("🦘 Застрял у стены (%.1fм)", nearWall.height))
+                    -- Есть стена — пробуем обойти
+                    if not bypassAttempted then
+                        Movement.Log("🔄 Застрял у стены — пробую обход")
+                        
+                        local bypassed = Movement.TryBypass(targetPos)
+                        bypassAttempted = true
+                        
+                        if bypassed then
+                            stuckTime = 0
+                            lastPos = Movement.RootPart.Position
+                            continue
+                        end
+                    end
+                    
+                    -- Обход не удался — прыгаем
+                    Movement.Log(string.format("🦘 Прыгаю (застрял у стены %.1fм)", nearWall.height))
                 else
-                    Movement.Log("🦘 Застрял")
+                    Movement.Log("🦘 Прыгаю (застрял)")
                 end
                 
-                -- Разбег и прыжок
                 Movement.Humanoid:MoveTo(targetPos)
-                task.wait(0.1)
+                task.wait(0.05)
                 Movement.ForceJump(targetPos)
                 lastJumpTime = tick()
                 
                 Movement.WaitForLanding(2)
                 stuckTime = 0
                 lastPos = Movement.RootPart.Position
+                bypassAttempted = false
                 
                 continue
             end
@@ -394,7 +592,6 @@ function Movement.ExecutePath(path, onProgress)
             if success then
                 i = i + 2
             else
-                -- Повторная попытка
                 Movement.Log("⚠️ Повторяю прыжок...")
                 task.wait(0.5)
                 success = Movement.ExecuteJump(node, landNode)
