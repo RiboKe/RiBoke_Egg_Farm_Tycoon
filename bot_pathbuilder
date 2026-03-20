@@ -5,7 +5,6 @@ PathBuilder.VERSION = "0.22"
 PathBuilder.Character = nil
 PathBuilder.Memory = nil
 
--- Настройки
 local RAY_DOWN_DIST = 50
 local MAX_WALK_DIST = 12
 local MAX_JUMP_DIST = 22
@@ -16,52 +15,51 @@ local WALK_POINT_SPACING = 4
 local FailedDirections = {}
 local FAILED_DIR_TIMEOUT = 30
 
--- === ПОИСК ПЛАТФОРМ ===
+-- === ПЛАТФОРМЫ ===
 local function isValidPlatform(part)
     if not part or not part:IsA("BasePart") then return false end
     if not part.CanCollide then return false end
     if part.Transparency >= 1 then return false end
     if part.Size.X < MIN_PLATFORM_SIZE and part.Size.Z < MIN_PLATFORM_SIZE then return false end
-    
-    -- Проверяем по имени - не смертельная ли часть
-    if PathBuilder.Memory and PathBuilder.Memory.IsPartDangerous(part.Name) then
-        return false
+
+    if PathBuilder.Memory and PathBuilder.Memory.IsPartDangerous then
+        if PathBuilder.Memory.IsPartDangerous(part.Name) then
+            return false
+        end
     end
-    
+
     return true
 end
 
-local function getSurfaceY(pos)
+local function getSurfaceY(pos, character)
     local ray = Ray.new(pos + Vector3.new(0, 5, 0), Vector3.new(0, -RAY_DOWN_DIST, 0))
-    local char = PathBuilder.Character
-    local hit, hitPos = workspace:FindPartOnRay(ray, char)
-    
+    local hit, hitPos = workspace:FindPartOnRay(ray, character)
+
     if hit and isValidPlatform(hit) then
         return hitPos.Y, hit
     end
     return nil, nil
 end
 
-local function isPositionSafe(pos)
-    -- Проверяем через новую систему Memory
-    if PathBuilder.Memory then
+local function isPositionSafe(pos, character)
+    if PathBuilder.Memory and PathBuilder.Memory.IsPositionDangerous then
         local dangerous, partName = PathBuilder.Memory.IsPositionDangerous(pos)
         if dangerous then
-            return false, partName
+            return false, nil
         end
     end
-    
-    local y, platform = getSurfaceY(pos)
-    if not y then return false, "no_ground" end
-    
+
+    local y, platform = getSurfaceY(pos, character)
+    if not y then return false, nil end
+
     return true, platform
 end
 
--- === СКАНИРОВАНИЕ ВОКРУГ ===
-local function scanPlatformsAround(centerPos, radius, targetPos)
+-- === СКАНИРОВАНИЕ ===
+local function scanPlatformsAround(centerPos, radius, targetPos, character)
     local platforms = {}
     local stepSize = 3
-    
+
     for angle = 0, 360, 15 do
         for dist = stepSize, radius, stepSize do
             local rad = math.rad(angle)
@@ -70,28 +68,28 @@ local function scanPlatformsAround(centerPos, radius, targetPos)
                 0,
                 math.sin(rad) * dist
             )
-            
-            local safe, platform = isPositionSafe(checkPos)
+
+            local safe, platform = isPositionSafe(checkPos, character)
             if safe and platform then
-                local surfaceY = getSurfaceY(checkPos)
+                local surfaceY = getSurfaceY(checkPos, character)
                 if surfaceY then
                     local platformPos = Vector3.new(checkPos.X, surfaceY + 3, checkPos.Z)
                     local distToTarget = (platformPos - targetPos).Magnitude
-                    
-                    -- Проверяем, что эта платформа не в "провальном" направлении
                     local dirToPlat = (platformPos - centerPos).Unit
                     local isFailedDir = false
-                    
+
                     for _, fd in ipairs(FailedDirections) do
-                        if tick() - fd.time < FAILED_DIR_TIMEOUT then
-                            local dot = dirToPlat:Dot(fd.direction)
-                            if dot > 0.8 then
-                                isFailedDir = true
-                                break
+                        if tick() - (fd.time or 0) < FAILED_DIR_TIMEOUT then
+                            if fd.direction then
+                                local dot = dirToPlat:Dot(fd.direction)
+                                if dot > 0.8 then
+                                    isFailedDir = true
+                                    break
+                                end
                             end
                         end
                     end
-                    
+
                     if not isFailedDir then
                         table.insert(platforms, {
                             position = platformPos,
@@ -104,36 +102,41 @@ local function scanPlatformsAround(centerPos, radius, targetPos)
             end
         end
     end
-    
-    -- Сортируем: ближе к цели = лучше
+
     table.sort(platforms, function(a, b)
         return a.distToTarget < b.distToTarget
     end)
-    
+
     return platforms
 end
 
--- === ОПРЕДЕЛЕНИЕ ТИПА ПЕРЕМЕЩЕНИЯ ===
-local function getMovementType(fromPos, toPos)
+-- === ТИП ПЕРЕМЕЩЕНИЯ ===
+local function getMovementType(fromPos, toPos, character)
     local horizontalDist = ((toPos - fromPos) * Vector3.new(1, 0, 1)).Magnitude
     local verticalDiff = toPos.Y - fromPos.Y
-    
-    -- Ходьба возможна
+
     if horizontalDist < MAX_WALK_DIST and math.abs(verticalDiff) < 3 then
-        -- Проверяем путь
-        local ray = Ray.new(fromPos, toPos - fromPos)
-        local hit = workspace:FindPartOnRay(ray, PathBuilder.Character)
-        
-        if not hit or (hit and isValidPlatform(hit)) then
-            return "walk"
+        local direction = toPos - fromPos
+        if direction.Magnitude > 0.1 then
+            local ray = Ray.new(fromPos, direction.Unit * horizontalDist)
+            local hit = workspace:FindPartOnRay(ray, character)
+
+            if not hit then
+                return "walk"
+            end
+            if hit and hit.CanCollide then
+                -- Проверяем не слишком ли высоко перекрытие
+                if hit.Position.Y <= fromPos.Y + 3 then
+                    return "walk"
+                end
+            end
         end
     end
-    
-    -- Прыжок
+
     if horizontalDist < MAX_JUMP_DIST and verticalDiff < MAX_JUMP_HEIGHT and verticalDiff > -MAX_JUMP_HEIGHT then
         return "jump"
     end
-    
+
     return "impossible"
 end
 
@@ -143,34 +146,32 @@ function PathBuilder.BuildPath(startPos, targetPos, aggressive)
     local currentPos = startPos
     local visited = {}
     local maxSteps = 50
-    
+    local character = PathBuilder.Character
+
     for step = 1, maxSteps do
         local dist = (targetPos - currentPos).Magnitude
-        
-        -- Достигли цели
+
         if dist < 8 then
             table.insert(path, {position = targetPos, type = "goal"})
             return path
         end
-        
-        -- Сканируем вокруг
+
         local scanRadius = aggressive and 25 or 20
-        local platforms = scanPlatformsAround(currentPos, scanRadius, targetPos)
-        
+        local platforms = scanPlatformsAround(currentPos, scanRadius, targetPos, character)
+
         if #platforms == 0 then
-            print("[PathBuilder] Нет доступных платформ на шаге " .. step)
+            print("[PathBuilder] Нет платформ на шаге " .. step)
             return path
         end
-        
-        -- Выбираем лучшую платформу
+
         local bestPlatform = nil
-        
+
         for _, plat in ipairs(platforms) do
-            local key = PathBuilder.Memory.Vec3ToKey(plat.position)
-            
+            local key = PathBuilder.Memory and PathBuilder.Memory.Vec3ToKey and PathBuilder.Memory.Vec3ToKey(plat.position) or tostring(plat.position)
+
             if not visited[key] then
-                local moveType = getMovementType(currentPos, plat.position)
-                
+                local moveType = getMovementType(currentPos, plat.position, character)
+
                 if moveType ~= "impossible" then
                     bestPlatform = plat
                     bestPlatform.moveType = moveType
@@ -178,11 +179,11 @@ function PathBuilder.BuildPath(startPos, targetPos, aggressive)
                 end
             end
         end
-        
+
         if not bestPlatform then
-            -- Пробуем любую непосещённую
             for _, plat in ipairs(platforms) do
-                local key = PathBuilder.Memory.Vec3ToKey(plat.position)
+                local key = PathBuilder.Memory and PathBuilder.Memory.Vec3ToKey and PathBuilder.Memory.Vec3ToKey(plat.position) or tostring(plat.position)
+
                 if not visited[key] then
                     bestPlatform = plat
                     bestPlatform.moveType = "jump"
@@ -190,52 +191,54 @@ function PathBuilder.BuildPath(startPos, targetPos, aggressive)
                 end
             end
         end
-        
+
         if not bestPlatform then
             print("[PathBuilder] Все платформы посещены")
             return path
         end
-        
-        -- Добавляем в путь
-        visited[PathBuilder.Memory.Vec3ToKey(bestPlatform.position)] = true
-        
+
+        local visitKey = PathBuilder.Memory and PathBuilder.Memory.Vec3ToKey and PathBuilder.Memory.Vec3ToKey(bestPlatform.position) or tostring(bestPlatform.position)
+        visited[visitKey] = true
+
         if bestPlatform.moveType == "jump" then
             table.insert(path, {position = currentPos, type = "jump_start"})
             table.insert(path, {position = bestPlatform.position, type = "jump_land"})
         else
             table.insert(path, {position = bestPlatform.position, type = "walk"})
         end
-        
+
         currentPos = bestPlatform.position
     end
-    
+
     return path
 end
 
 function PathBuilder.BuildAlternativePath(startPos, targetPos)
-    -- Добавляем случайные "запреты" чтобы найти другой путь
     local dirToTarget = (targetPos - startPos).Unit
-    
-    -- Запрещаем прямой путь
     PathBuilder.AddFailedDirection(startPos, dirToTarget)
-    
-    -- Строим путь
+
+    -- Добавляем ещё случайных блокировок
+    for i = 1, 3 do
+        local angle = math.random() * math.pi * 2
+        local randomDir = Vector3.new(math.cos(angle), 0, math.sin(angle))
+        PathBuilder.AddFailedDirection(startPos, randomDir)
+    end
+
     local path = PathBuilder.BuildPath(startPos, targetPos, true)
-    
     return path
 end
 
 function PathBuilder.AddFailedDirection(fromPos, direction)
+    if not fromPos or not direction then return end
     table.insert(FailedDirections, {
         position = fromPos,
         direction = direction,
         time = tick()
     })
-    
-    -- Очистка старых
+
     local newList = {}
     for _, fd in ipairs(FailedDirections) do
-        if tick() - fd.time < FAILED_DIR_TIMEOUT then
+        if tick() - (fd.time or 0) < FAILED_DIR_TIMEOUT then
             table.insert(newList, fd)
         end
     end
