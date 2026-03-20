@@ -1,6 +1,9 @@
 -- === MEMORY MODULE ===
 -- Сохраняй как: ObbyBot_Memory.lua или вставь в начало основного скрипта
 
+MemoryModule.VERSION = "0.17"
+MemoryModule.NAME = "Memory"
+
 local MemoryModule = {}
 
 local HttpService = game:GetService("HttpService")
@@ -220,5 +223,7 @@ function MemoryModule.GetStats()
         safeZones = #MemoryModule.SafeZones
     }
 end
+
+print("✅ [ObbyBot] " .. MemoryModule.NAME .. " v" .. MemoryModule.VERSION .. " загружен")
 
 return MemoryModule
