@@ -1,20 +1,16 @@
--- === MEMORY MODULE ===
--- Сохраняй как: ObbyBot_Memory.lua или вставь в начало основного скрипта
+-- === MEMORY MODULE v0.17 ===
+local MemoryModule = {}
 
 MemoryModule.VERSION = "0.17"
 MemoryModule.NAME = "Memory"
 
-local MemoryModule = {}
-
 local HttpService = game:GetService("HttpService")
 
--- Данные памяти
-MemoryModule.DeathZones = {}      -- {position, radius, count, killPartName}
-MemoryModule.KillParts = {}        -- Названия kill-частей
-MemoryModule.SafeZones = {}        -- Безопасные точки (успешно пройденные)
-MemoryModule.FileName = "ObbyBot_V16_" .. game.PlaceId .. ".json"
+MemoryModule.DeathZones = {}
+MemoryModule.KillParts = {}
+MemoryModule.SafeZones = {}
+MemoryModule.FileName = "ObbyBot_V17_" .. game.PlaceId .. ".json"
 
--- Сохранение
 function MemoryModule.Save()
     if not writefile then return end
     
@@ -48,7 +44,6 @@ function MemoryModule.Save()
     end)
 end
 
--- Загрузка
 function MemoryModule.Load()
     if not isfile or not isfile(MemoryModule.FileName) then return end
     
@@ -80,13 +75,10 @@ function MemoryModule.Load()
     end
 end
 
--- Добавить зону смерти
 function MemoryModule.AddDeathZone(position, killPartName)
-    -- Ищем существующую зону рядом
     for _, zone in ipairs(MemoryModule.DeathZones) do
         if (position - zone.position).Magnitude < zone.radius + 5 then
             zone.count = zone.count + 1
-            -- Радиус растёт с каждой смертью
             zone.radius = math.min(8 + zone.count * 3, 35)
             if killPartName then
                 zone.killPartName = killPartName
@@ -96,16 +88,14 @@ function MemoryModule.AddDeathZone(position, killPartName)
         end
     end
     
-    -- Новая зона
     local newZone = {
         position = position,
-        radius = 10,  -- Начальный радиус
+        radius = 10,
         count = 1,
         killPartName = killPartName
     }
     table.insert(MemoryModule.DeathZones, newZone)
     
-    -- Лимит зон
     while #MemoryModule.DeathZones > 100 do
         table.remove(MemoryModule.DeathZones, 1)
     end
@@ -114,7 +104,6 @@ function MemoryModule.AddDeathZone(position, killPartName)
     return 1, 10
 end
 
--- Проверить, находится ли точка в зоне смерти
 function MemoryModule.IsDeathZone(position)
     for _, zone in ipairs(MemoryModule.DeathZones) do
         local dist = (position - zone.position).Magnitude
@@ -125,13 +114,11 @@ function MemoryModule.IsDeathZone(position)
     return false, nil
 end
 
--- Получить штраф опасности для точки (для выбора пути)
 function MemoryModule.GetDangerScore(position)
     local score = 0
     for _, zone in ipairs(MemoryModule.DeathZones) do
         local dist = (position - zone.position).Magnitude
         if dist < zone.radius * 1.5 then
-            -- Чем ближе к центру зоны и чем больше смертей — тем выше штраф
             local proximity = 1 - (dist / (zone.radius * 1.5))
             score = score + (proximity * zone.count * 10)
         end
@@ -139,7 +126,6 @@ function MemoryModule.GetDangerScore(position)
     return score
 end
 
--- Запомнить kill-часть
 function MemoryModule.RememberKillPart(partName)
     if not partName then return end
     
@@ -151,16 +137,13 @@ function MemoryModule.RememberKillPart(partName)
     MemoryModule.Save()
 end
 
--- Проверить, является ли часть kill-блоком
 function MemoryModule.IsKillPart(part)
     if not part then return false end
     
-    -- Проверяем запомненные
     for _, name in ipairs(MemoryModule.KillParts) do
         if part.Name == name then return true end
     end
     
-    -- Проверяем по имени
     local name = part.Name:lower()
     local dangerWords = {"kill", "lava", "death", "spike", "trap", "damage", "hurt", "die", "fire", "acid"}
     for _, word in ipairs(dangerWords) do
@@ -170,9 +153,7 @@ function MemoryModule.IsKillPart(part)
     return false
 end
 
--- Добавить безопасную точку
 function MemoryModule.AddSafeZone(position)
-    -- Проверяем, нет ли уже такой
     for _, safe in ipairs(MemoryModule.SafeZones) do
         if (position - safe.position).Magnitude < 5 then
             return
@@ -181,13 +162,11 @@ function MemoryModule.AddSafeZone(position)
     
     table.insert(MemoryModule.SafeZones, {position = position})
     
-    -- Лимит
     while #MemoryModule.SafeZones > 200 do
         table.remove(MemoryModule.SafeZones, 1)
     end
 end
 
--- Проверить безопасность пути между двумя точками
 function MemoryModule.IsPathSafe(fromPos, toPos)
     local dir = toPos - fromPos
     local dist = dir.Magnitude
@@ -207,7 +186,6 @@ function MemoryModule.IsPathSafe(fromPos, toPos)
     return true, nil
 end
 
--- Сбросить память
 function MemoryModule.Reset()
     MemoryModule.DeathZones = {}
     MemoryModule.KillParts = {}
@@ -215,7 +193,6 @@ function MemoryModule.Reset()
     MemoryModule.Save()
 end
 
--- Получить статистику
 function MemoryModule.GetStats()
     return {
         deathZones = #MemoryModule.DeathZones,
@@ -224,6 +201,6 @@ function MemoryModule.GetStats()
     }
 end
 
-print("✅ [ObbyBot] " .. MemoryModule.NAME .. " v" .. MemoryModule.VERSION .. " загружен")
+print("[ObbyBot] Memory v" .. MemoryModule.VERSION .. " loaded")
 
 return MemoryModule
