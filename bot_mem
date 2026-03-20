@@ -1,34 +1,34 @@
--- === BOT MEMORY V0.22 - ИСПРАВЛЕННАЯ СИСТЕМА ===
--- Вместо зон смерти - точное запоминание kill-частей
-
+-- === BOT MEMORY V0.22 ===
 local Memory = {}
 Memory.VERSION = "0.22"
 
--- === ДАННЫЕ ===
-Memory.KillParts = {}           -- {partName = {count, lastPos, instances}}
-Memory.TouchKillPoints = {}     -- Точные точки касания убийц
-Memory.SafePositions = {}       -- Проверенные безопасные позиции
-Memory.DeathSequences = {}      -- Последовательности смертей для обнаружения застревания
+Memory.KillParts = {}
+Memory.TouchKillPoints = {}
+Memory.SafePositions = {}
+Memory.DeathSequences = {}
 
--- Настройки
 Memory.MAX_KILL_POINTS = 100
-Memory.KILL_POINT_RADIUS = 3    -- Маленький радиус - только точка касания
-Memory.STUCK_THRESHOLD = 5      -- После скольких смертей в одном месте - сброс
-Memory.STUCK_RADIUS = 15        -- Радиус для определения "одного места"
+Memory.KILL_POINT_RADIUS = 3
+Memory.STUCK_THRESHOLD = 5
+Memory.STUCK_RADIUS = 15
 
-local DATA_KEY = "ObbyBotMemory_v22_" .. game.PlaceId
+local DATA_KEY = "ObbyBotMemory_v22_" .. tostring(game.PlaceId)
 
--- === СОХРАНЕНИЕ/ЗАГРУЗКА ===
+-- === SAVE / LOAD ===
 function Memory.Save()
     local data = {
         killParts = Memory.KillParts,
         touchPoints = Memory.TouchKillPoints,
         version = Memory.VERSION
     }
-    
     pcall(function()
         if writefile then
-            writefile(DATA_KEY .. ".json", game:GetService("HttpService"):JSONEncode(data))
+            local ok, encoded = pcall(function()
+                return game:GetService("HttpService"):JSONEncode(data)
+            end)
+            if ok and encoded then
+                writefile(DATA_KEY .. ".json", encoded)
+            end
         end
     end)
 end
@@ -36,14 +36,17 @@ end
 function Memory.Load()
     pcall(function()
         if readfile and isfile and isfile(DATA_KEY .. ".json") then
-            local data = game:GetService("HttpService"):JSONDecode(readfile(DATA_KEY .. ".json"))
-            if data.version == Memory.VERSION then
+            local raw = readfile(DATA_KEY .. ".json")
+            local ok, data = pcall(function()
+                return game:GetService("HttpService"):JSONDecode(raw)
+            end)
+            if ok and data and data.version == Memory.VERSION then
                 Memory.KillParts = data.killParts or {}
                 Memory.TouchKillPoints = data.touchPoints or {}
             end
         end
     end)
-    print("[Memory] Загружено kill-частей: " .. Memory.TableSize(Memory.KillParts))
+    print("[Memory] Загружено kill-точек: " .. Memory.TableSize(Memory.TouchKillPoints))
 end
 
 function Memory.Reset()
@@ -55,7 +58,7 @@ function Memory.Reset()
     print("[Memory] Полный сброс")
 end
 
--- === УТИЛИТЫ ===
+-- === UTILS ===
 function Memory.TableSize(t)
     local count = 0
     for _ in pairs(t) do count = count + 1 end
@@ -67,153 +70,148 @@ function Memory.Vec3ToKey(pos)
 end
 
 function Memory.KeyToVec3(key)
+    if not key then return nil end
     local x, y, z = key:match("([%-%.%d]+)_([%-%.%d]+)_([%-%.%d]+)")
-    if x then return Vector3.new(tonumber(x), tonumber(y), tonumber(z)) end
+    if x and y and z then
+        return Vector3.new(tonumber(x), tonumber(y), tonumber(z))
+    end
     return nil
 end
 
--- === ГЛАВНОЕ: ЗАПОМИНАНИЕ ТОЧКИ КАСАНИЯ УБИЙЦЫ ===
+-- === КЛЮЧЕВАЯ ФУНКЦИЯ: запись точки касания убийцы ===
 function Memory.AddKillTouch(touchPosition, partName, partInstance)
-    if not touchPosition then return end
-    
+    if not touchPosition then
+        return false, "no_position"
+    end
+
     local key = Memory.Vec3ToKey(touchPosition)
-    
-    -- Сохраняем точку касания
+
     Memory.TouchKillPoints[key] = {
         position = {x = touchPosition.X, y = touchPosition.Y, z = touchPosition.Z},
         partName = partName or "unknown",
         count = (Memory.TouchKillPoints[key] and Memory.TouchKillPoints[key].count or 0) + 1,
         lastTime = os.time()
     }
-    
-    -- Запоминаем имя kill-части
-    if partName and partName ~= "unknown" then
-        Memory.KillParts[partName] = Memory.KillParts[partName] or {count = 0, dangerous = true}
-        Memory.KillParts[partName].count = Memory.KillParts[partName].count + 1
+
+    if partName and partName ~= "" and partName ~= "unknown" then
+        Memory.KillParts[partName] = Memory.KillParts[partName] or {count = 0}
+        Memory.KillParts[partName].count = (Memory.KillParts[partName].count or 0) + 1
+        Memory.KillParts[partName].dangerous = true
     end
-    
-    -- Отслеживаем застревание
+
     table.insert(Memory.DeathSequences, {
         pos = touchPosition,
         time = tick()
     })
-    
+
     -- Проверяем застревание
     local stuckCount = Memory.CheckIfStuck(touchPosition)
     if stuckCount >= Memory.STUCK_THRESHOLD then
-        print("[Memory] ⚠️ Застревание обнаружено! Частичный сброс...")
+        print("[Memory] ⚠️ Застревание! Частичный сброс...")
         Memory.PartialReset(touchPosition)
         return true, "stuck_reset"
     end
-    
-    -- Ограничиваем размер
+
     Memory.CleanupOldPoints()
-    
-    print(string.format("[Memory] Kill-точка: %s (%s)", key, partName or "?"))
+    print(string.format("[Memory] Kill-точка: %s (%s) [%d]", key, partName or "?", stuckCount))
     return false, "recorded"
 end
 
--- === ПРОВЕРКА ЗАСТРЕВАНИЯ ===
+-- === ЗАСТРЕВАНИЕ ===
 function Memory.CheckIfStuck(pos)
+    if not pos then return 0 end
+
     local recentDeaths = 0
-    local cutoff = tick() - 60 -- За последнюю минуту
-    
+    local cutoff = tick() - 60
+
     for i = #Memory.DeathSequences, 1, -1 do
         local death = Memory.DeathSequences[i]
         if death.time < cutoff then
             break
         end
-        
-        local dist = (death.pos - pos).Magnitude
-        if dist < Memory.STUCK_RADIUS then
-            recentDeaths = recentDeaths + 1
+        if death.pos then
+            local dist = (death.pos - pos).Magnitude
+            if dist < Memory.STUCK_RADIUS then
+                recentDeaths = recentDeaths + 1
+            end
         end
     end
-    
+
     return recentDeaths
 end
 
--- === ЧАСТИЧНЫЙ СБРОС ПРИ ЗАСТРЕВАНИИ ===
+-- === ЧАСТИЧНЫЙ СБРОС ===
 function Memory.PartialReset(aroundPos)
-    -- Удаляем kill-точки только вокруг места застревания
+    if not aroundPos then return end
+
+    local removed = 0
     local keysToRemove = {}
-    
+
     for key, data in pairs(Memory.TouchKillPoints) do
         local pointPos = Vector3.new(data.position.x, data.position.y, data.position.z)
         if (pointPos - aroundPos).Magnitude < Memory.STUCK_RADIUS * 2 then
             table.insert(keysToRemove, key)
         end
     end
-    
+
     for _, key in ipairs(keysToRemove) do
         Memory.TouchKillPoints[key] = nil
+        removed = removed + 1
     end
-    
-    -- Очищаем историю смертей
+
     Memory.DeathSequences = {}
-    
-    print(string.format("[Memory] Сброшено %d точек вокруг застревания", #keysToRemove))
+    print(string.format("[Memory] Сброшено %d точек вокруг застревания", removed))
 end
 
 -- === ОЧИСТКА СТАРЫХ ТОЧЕК ===
 function Memory.CleanupOldPoints()
-    if Memory.TableSize(Memory.TouchKillPoints) <= Memory.MAX_KILL_POINTS then
-        return
-    end
-    
-    -- Удаляем самые старые
+    local total = Memory.TableSize(Memory.TouchKillPoints)
+    if total <= Memory.MAX_KILL_POINTS then return end
+
     local sorted = {}
     for key, data in pairs(Memory.TouchKillPoints) do
         table.insert(sorted, {key = key, time = data.lastTime or 0})
     end
     table.sort(sorted, function(a, b) return a.time < b.time end)
-    
+
     local toRemove = #sorted - Memory.MAX_KILL_POINTS
     for i = 1, toRemove do
         Memory.TouchKillPoints[sorted[i].key] = nil
     end
+    print(string.format("[Memory] Удалено %d старых точек", toRemove))
 end
 
--- === ПРОВЕРКА: ОПАСНА ЛИ ПОЗИЦИЯ? ===
+-- === ПРОВЕРКИ ОПАСНОСТИ ===
 function Memory.IsPositionDangerous(pos)
+    if not pos then return false, nil, 0 end
+
     for key, data in pairs(Memory.TouchKillPoints) do
         local pointPos = Vector3.new(data.position.x, data.position.y, data.position.z)
         local dist = (pointPos - pos).Magnitude
-        
         if dist < Memory.KILL_POINT_RADIUS then
-            return true, data.partName, dist
+            return true, data.partName or "unknown", dist
         end
     end
-    return false
+    return false, nil, 0
 end
 
--- === ПРОВЕРКА: ОПАСНА ЛИ ЧАСТЬ ПО ИМЕНИ? ===
 function Memory.IsPartDangerous(partName)
-    if not partName then return false end
-    
+    if not partName or partName == "" then return false end
+
     local data = Memory.KillParts[partName]
-    if data and data.dangerous and data.count >= 2 then
+    if data and data.dangerous and (data.count or 0) >= 2 then
         return true
     end
-    
-    -- Эвристика по имени
+
     local lowerName = partName:lower()
-    local dangerWords = {"kill", "death", "lava", "spike", "trap", "danger", "hurt", "damage"}
+    local dangerWords = {"kill", "death", "lava", "spike", "trap", "danger", "hurt", "damage", "dead"}
     for _, word in ipairs(dangerWords) do
         if lowerName:find(word) then
             return true
         end
     end
-    
-    return false
-end
 
--- === ЗАПОМИНАНИЕ KILL-ЧАСТИ (старая совместимость) ===
-function Memory.RememberKillPart(partName)
-    if not partName then return end
-    Memory.KillParts[partName] = Memory.KillParts[partName] or {count = 0, dangerous = true}
-    Memory.KillParts[partName].count = Memory.KillParts[partName].count + 1
-    Memory.KillParts[partName].dangerous = true
+    return false
 end
 
 -- === СТАТИСТИКА ===
@@ -225,24 +223,28 @@ function Memory.GetStats()
     }
 end
 
--- === УДАЛЕНИЕ ЗОНЫ (совместимость) ===
-function Memory.AddDeathZone(pos, partName)
-    -- Перенаправляем на новую систему
-    -- Но эта функция больше не нужна - используй AddKillTouch
-    return 1, Memory.KILL_POINT_RADIUS
-end
-
--- === ПОЛУЧИТЬ ВСЕ ОПАСНЫЕ ТОЧКИ ===
 function Memory.GetDangerPoints()
     local points = {}
     for key, data in pairs(Memory.TouchKillPoints) do
         table.insert(points, {
             position = Vector3.new(data.position.x, data.position.y, data.position.z),
             radius = Memory.KILL_POINT_RADIUS,
-            partName = data.partName
+            partName = data.partName or "unknown"
         })
     end
     return points
+end
+
+-- === СОВМЕСТИМОСТЬ со старым API ===
+function Memory.RememberKillPart(partName)
+    if not partName or partName == "" then return end
+    Memory.KillParts[partName] = Memory.KillParts[partName] or {count = 0, dangerous = true}
+    Memory.KillParts[partName].count = (Memory.KillParts[partName].count or 0) + 1
+    Memory.KillParts[partName].dangerous = true
+end
+
+function Memory.AddDeathZone(pos, partName)
+    return 1, Memory.KILL_POINT_RADIUS
 end
 
 return Memory
