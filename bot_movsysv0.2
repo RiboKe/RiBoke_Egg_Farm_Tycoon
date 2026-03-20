@@ -1,0 +1,392 @@
+-- === MOVEMENT MODULE v0.30 - FIXED FOR KILL BLOCK JUMPS ===
+local Movement = {}
+
+Movement.VERSION = "0.2"
+Movement.NAME = "Movement"
+
+Movement.Humanoid = nil
+Movement.RootPart = nil
+Movement.Character = nil
+Movement.Memory = nil
+Movement.PathBuilder = nil
+Movement.IsActive = function() return false end
+Movement.Log = function(text) end
+
+-- === КОНСТАНТЫ ===
+local WALK_TIMEOUT = 4
+local WALK_TOLERANCE = 4.5
+local JUMP_TIMEOUT = 3
+local JUMP_LAND_TOLERANCE = 6
+
+-- Для прыжков через kill-блоки
+local KILL_JUMP_EXTRA_HEIGHT = 3  -- Дополнительная высота над kill-блоком
+local KILL_JUMP_EARLY_FACTOR = 0.7  -- Прыгаем раньше (70% пути до kill-блока)
+
+-- === БАЗОВЫЕ ФУНКЦИИ ===
+
+function Movement.IsOnGround()
+    if not Movement.Humanoid then return false end
+    local state = Movement.Humanoid:GetState()
+    return state ~= Enum.HumanoidStateType.Jumping 
+        and state ~= Enum.HumanoidStateType.Freefall
+        and state ~= Enum.HumanoidStateType.Climbing
+end
+
+function Movement.DoJump()
+    if not Movement.Humanoid then return false end
+    
+    Movement.Humanoid.Jump = true
+    
+    task.spawn(function()
+        task.wait(0.02)
+        if Movement.Humanoid then
+            pcall(function()
+                Movement.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end)
+        end
+    end)
+    
+    -- Повторные попытки прыжка
+    task.spawn(function()
+        for i = 1, 5 do
+            task.wait(0.05)
+            if Movement.Humanoid and Movement.IsOnGround() then
+                Movement.Humanoid.Jump = true
+            end
+        end
+    end)
+    
+    return true
+end
+
+function Movement.ForceJump(targetPos)
+    if not Movement.Humanoid or not Movement.RootPart then return false end
+    
+    local startY = Movement.RootPart.Position.Y
+    local jumped = false
+    
+    if targetPos then
+        Movement.Humanoid:MoveTo(targetPos)
+    end
+    
+    for attempt = 1, 15 do
+        if not Movement.IsActive() then return false end
+        
+        local currentY = Movement.RootPart.Position.Y
+        local state = Movement.Humanoid:GetState()
+        
+        if state == Enum.HumanoidStateType.Jumping or state == Enum.HumanoidStateType.Freefall then
+            jumped = true
+            break
+        end
+        
+        if currentY > startY + 1 then
+            jumped = true
+            break
+        end
+        
+        Movement.Humanoid.Jump = true
+        
+        if attempt > 3 then
+            pcall(function()
+                Movement.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end)
+        end
+        
+        -- Отступаем назад и снова вперёд для разбега
+        if attempt > 6 then
+            local backDir = -Movement.RootPart.CFrame.LookVector
+            Movement.Humanoid:MoveTo(Movement.RootPart.Position + backDir * 2)
+            task.wait(0.1)
+            if targetPos then
+                Movement.Humanoid:MoveTo(targetPos)
+            end
+            Movement.Humanoid.Jump = true
+        end
+        
+        task.wait(0.05)
+    end
+    
+    return jumped
+end
+
+function Movement.WaitForLanding(timeout)
+    timeout = timeout or 3
+    local startTime = tick()
+    
+    task.wait(0.2)
+    
+    while tick() - startTime < timeout do
+        if not Movement.IsActive() then return false end
+        if not Movement.RootPart or not Movement.RootPart.Parent then return false end
+        if not Movement.Humanoid or Movement.Humanoid.Health <= 0 then return false end
+        
+        if Movement.IsOnGround() then
+            return true
+        end
+        task.wait(0.05)
+    end
+    
+    return Movement.IsOnGround()
+end
+
+-- === RAYCAST УТИЛИТЫ ===
+
+local function getRayParams()
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    rayParams.FilterDescendantsInstances = {Movement.Character}
+    return rayParams
+end
+
+local function checkWallAhead(position, direction, maxDist)
+    if not Movement.Character then return nil end
+    
+    maxDist = maxDist or 3
+    direction = Vector3.new(direction.X, 0, direction.Z)
+    if direction.Magnitude < 0.1 then return nil end
+    direction = direction.Unit
+    
+    local rayParams = getRayParams()
+    
+    for _, height in ipairs({0.3, 1.0, 2.0}) do
+        local origin = position + Vector3.new(0, height, 0)
+        local ray = workspace:Raycast(origin, direction * maxDist, rayParams)
+        
+        if ray and ray.Instance and ray.Instance.CanCollide then
+            local hitTop = ray.Instance.Position.Y + ray.Instance.Size.Y / 2
+            local wallHeight = hitTop - position.Y
+            
+            if wallHeight > 0.5 then
+                return {
+                    position = ray.Position,
+                    part = ray.Instance,
+                    height = wallHeight,
+                    distance = (ray.Position - position).Magnitude
+                }
+            end
+        end
+    end
+    
+    return nil
+end
+
+-- === ВЫПОЛНЕНИЕ ХОДЬБЫ ===
+
+function Movement.ExecuteWalk(node)
+    if not Movement.Humanoid or not Movement.RootPart then return false end
+    if not node or not node.position then return false end
+    
+    local targetPos = node.position
+    local startTime = tick()
+    local startPos = Movement.RootPart.Position
+    
+    Movement.Humanoid:MoveTo(targetPos)
+    
+    while tick() - startTime < WALK_TIMEOUT do
+        if not Movement.IsActive() then return false end
+        if not Movement.RootPart or not Movement.RootPart.Parent then return false end
+        if not Movement.Humanoid or Movement.Humanoid.Health <= 0 then return false end
+        
+        local currentPos = Movement.RootPart.Position
+        local distToTarget = (targetPos - currentPos).Magnitude
+        local horizDist = ((targetPos - currentPos) * Vector3.new(1, 0, 1)).Magnitude
+        
+        -- Достигли цели
+        if horizDist < WALK_TOLERANCE then
+            return true
+        end
+        
+        -- Проверяем препятствие
+        local direction = (targetPos - currentPos)
+        if direction.Magnitude > 0.1 then
+            local wall = checkWallAhead(currentPos, direction, 2)
+            if wall and wall.height > 1 then
+                -- Пробуем перепрыгнуть низкое препятствие
+                if wall.height < 5 then
+                    Movement.DoJump()
+                    task.wait(0.3)
+                else
+                    -- Высокое препятствие - не можем пройти
+                    return false
+                end
+            end
+        end
+        
+        -- Обновляем цель движения
+        Movement.Humanoid:MoveTo(targetPos)
+        task.wait(0.1)
+    end
+    
+    -- Таймаут - проверяем достигли ли достаточно близко
+    local finalDist = ((targetPos - Movement.RootPart.Position) * Vector3.new(1, 0, 1)).Magnitude
+    return finalDist < WALK_TOLERANCE * 1.5
+end
+
+-- === ВЫПОЛНЕНИЕ ПРЫЖКА ===
+
+function Movement.ExecuteJump(startNode, landNode)
+    if not Movement.Humanoid or not Movement.RootPart then return false end
+    if not startNode or not landNode then return false end
+    if not startNode.position or not landNode.position then return false end
+    
+    local jumpStartPos = startNode.position
+    local landingPos = landNode.position
+    local currentPos = Movement.RootPart.Position
+    
+    -- Определяем это прыжок через kill-блок?
+    local isKillJump = startNode.hasKillBetween or landNode.hasKillBetween
+    
+    Movement.Log(isKillJump and "🔥 Kill-прыжок!" or "⬆️ Прыжок...")
+    
+    -- Шаг 1: Подходим к точке старта (если далеко)
+    local distToStart = ((jumpStartPos - currentPos) * Vector3.new(1, 0, 1)).Magnitude
+    if distToStart > 2 then
+        Movement.Humanoid:MoveTo(jumpStartPos)
+        
+        local approachStart = tick()
+        while tick() - approachStart < 2 do
+            if not Movement.IsActive() then return false end
+            if not Movement.RootPart or not Movement.RootPart.Parent then return false end
+            
+            local dist = ((jumpStartPos - Movement.RootPart.Position) * Vector3.new(1, 0, 1)).Magnitude
+            if dist < 2 then
+                break
+            end
+            task.wait(0.1)
+        end
+    end
+    
+    -- Шаг 2: Выполняем прыжок
+    
+    -- Направление к точке приземления
+    local jumpDir = (landingPos - Movement.RootPart.Position)
+    local horizJumpDir = Vector3.new(jumpDir.X, 0, jumpDir.Z)
+    if horizJumpDir.Magnitude > 0.1 then
+        horizJumpDir = horizJumpDir.Unit
+    end
+    
+    -- Целевая точка в воздухе (выше приземления)
+    local jumpHeight = math.max(5, landingPos.Y - Movement.RootPart.Position.Y + 3)
+    if isKillJump then
+        jumpHeight = jumpHeight + KILL_JUMP_EXTRA_HEIGHT
+    end
+    
+    local airTarget = landingPos + Vector3.new(0, jumpHeight, 0)
+    
+    -- Начинаем движение к цели
+    Movement.Humanoid:MoveTo(landingPos)
+    
+    -- Прыжок!
+    local jumped = Movement.ForceJump(landingPos)
+    
+    if not jumped then
+        Movement.Log("⚠️ Не удалось прыгнуть")
+        return false
+    end
+    
+    -- Шаг 3: Контролируем полёт
+    local flightStart = tick()
+    local maxFlightTime = JUMP_TIMEOUT
+    local reachedPeak = false
+    local lastY = Movement.RootPart.Position.Y
+    
+    while tick() - flightStart < maxFlightTime do
+        if not Movement.IsActive() then return false end
+        if not Movement.RootPart or not Movement.RootPart.Parent then return false end
+        if not Movement.Humanoid or Movement.Humanoid.Health <= 0 then return false end
+        
+        local currentY = Movement.RootPart.Position.Y
+        
+        -- Определяем пик прыжка
+        if currentY < lastY - 0.1 then
+            reachedPeak = true
+        end
+        lastY = currentY
+        
+        -- Продолжаем направлять к цели
+        Movement.Humanoid:MoveTo(landingPos)
+        
+        -- Проверяем приземление
+        if reachedPeak and Movement.IsOnGround() then
+            break
+        end
+        
+        task.wait(0.05)
+    end
+    
+    -- Шаг 4: Ждём приземления
+    Movement.WaitForLanding(2)
+    
+    -- Шаг 5: Проверяем успешность
+    if not Movement.RootPart or not Movement.RootPart.Parent then return false end
+    if not Movement.Humanoid or Movement.Humanoid.Health <= 0 then return false end
+    
+    local finalPos = Movement.RootPart.Position
+    local distToLanding = ((landingPos - finalPos) * Vector3.new(1, 0, 1)).Magnitude
+    
+    if distToLanding < JUMP_LAND_TOLERANCE then
+        Movement.Log("✓ Прыжок успешен!")
+        return true
+    end
+    
+    -- Прыжок не совсем точный, но мы живы - считаем частичным успехом
+    -- если продвинулись вперёд
+    local startToLand = (landingPos - jumpStartPos).Magnitude
+    local currentToLand = distToLanding
+    
+    if currentToLand < startToLand * 0.7 then
+        Movement.Log("✓ Прыжок OK (близко)")
+        return true
+    end
+    
+    Movement.Log(string.format("⚠️ Прыжок: %.1f studs от цели", distToLanding))
+    return false
+end
+
+-- === ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ ===
+
+-- Прыжок на месте (для преодоления мелких препятствий)
+function Movement.JumpInPlace()
+    if not Movement.Humanoid then return false end
+    Movement.DoJump()
+    task.wait(0.5)
+    return Movement.WaitForLanding(2)
+end
+
+-- Отступить назад
+function Movement.StepBack(distance)
+    if not Movement.Humanoid or not Movement.RootPart then return false end
+    distance = distance or 3
+    
+    local backDir = -Movement.RootPart.CFrame.LookVector
+    local backPos = Movement.RootPart.Position + backDir * distance
+    
+    Movement.Humanoid:MoveTo(backPos)
+    task.wait(0.5)
+    
+    return true
+end
+
+-- Двигаться в сторону
+function Movement.StepSide(direction, distance)
+    if not Movement.Humanoid or not Movement.RootPart then return false end
+    distance = distance or 3
+    
+    local sideDir
+    if direction == "left" then
+        local look = Movement.RootPart.CFrame.LookVector
+        sideDir = Vector3.new(-look.Z, 0, look.X).Unit
+    else
+        local look = Movement.RootPart.CFrame.LookVector
+        sideDir = Vector3.new(look.Z, 0, -look.X).Unit
+    end
+    
+    local sidePos = Movement.RootPart.Position + sideDir * distance
+    Movement.Humanoid:MoveTo(sidePos)
+    task.wait(0.5)
+    
+    return true
+end
+
+return Movement
