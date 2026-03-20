@@ -1,12 +1,9 @@
--- === MOVEMENT MODULE ===
--- Ходьба, прыжки, выполнение пути
+-- === MOVEMENT MODULE v0.17 ===
+local Movement = {}
 
 Movement.VERSION = "0.17"
 Movement.NAME = "Movement"
 
-local Movement = {}
-
--- Ссылки (устанавливаются из Main)
 Movement.Humanoid = nil
 Movement.RootPart = nil
 Movement.Character = nil
@@ -15,7 +12,6 @@ Movement.PathBuilder = nil
 Movement.IsActive = function() return false end
 Movement.Log = function(text) end
 
--- Состояние на земле
 function Movement.IsOnGround()
     if not Movement.Humanoid then return false end
     local state = Movement.Humanoid:GetState()
@@ -24,17 +20,14 @@ function Movement.IsOnGround()
         and state ~= Enum.HumanoidStateType.Climbing
 end
 
--- Выполнить прыжок (с несколькими попытками)
 function Movement.DoJump()
     if not Movement.Humanoid then return false end
     
-    -- Пробуем несколько раз
     for attempt = 1, 10 do
         if Movement.IsOnGround() then
             Movement.Humanoid.Jump = true
             task.wait(0.05)
             
-            -- Проверяем что прыжок начался
             local state = Movement.Humanoid:GetState()
             if state == Enum.HumanoidStateType.Jumping or state == Enum.HumanoidStateType.Freefall then
                 return true
@@ -43,20 +36,16 @@ function Movement.DoJump()
         task.wait(0.03)
     end
     
-    -- Последняя попытка — форсируем
     Movement.Humanoid.Jump = true
     return true
 end
 
--- Ждать приземления
 function Movement.WaitForLanding(timeout)
     timeout = timeout or 3
     local startTime = tick()
     
-    -- Сначала ждём начала прыжка/падения
     task.wait(0.15)
     
-    -- Потом ждём приземления
     while tick() - startTime < timeout do
         if Movement.IsOnGround() then
             return true
@@ -67,7 +56,6 @@ function Movement.WaitForLanding(timeout)
     return Movement.IsOnGround()
 end
 
--- Проверка стены впереди (локальная функция)
 local function checkWallAhead(position, direction, maxDist)
     maxDist = maxDist or 3
     direction = Vector3.new(direction.X, 0, direction.Z)
@@ -78,7 +66,6 @@ local function checkWallAhead(position, direction, maxDist)
     rayParams.FilterType = Enum.RaycastFilterType.Blacklist
     rayParams.FilterDescendantsInstances = {Movement.Character}
     
-    -- Проверяем на трёх высотах
     for _, height in ipairs({0.3, 1.0, 2.0}) do
         local origin = position + Vector3.new(0, height, 0)
         local ray = workspace:Raycast(origin, direction * maxDist, rayParams)
@@ -101,7 +88,6 @@ local function checkWallAhead(position, direction, maxDist)
     return nil
 end
 
--- Выполнить прыжок между двумя точками
 function Movement.ExecuteJump(startNode, landNode)
     if not Movement.Humanoid or not Movement.RootPart then return false end
     
@@ -110,7 +96,6 @@ function Movement.ExecuteJump(startNode, landNode)
     
     Movement.Log(string.format("🦘 %s", startNode.description or "Прыжок"))
     
-    -- Фаза 1: Подход к точке старта (если далеко)
     local distToStart = (startPos - Movement.RootPart.Position).Magnitude
     
     if distToStart > 2 then
@@ -126,12 +111,10 @@ function Movement.ExecuteJump(startNode, landNode)
             distToStart = (startPos - Movement.RootPart.Position).Magnitude
             if distToStart < 2 then break end
             
-            -- Проверяем застревание при подходе
             local moved = (Movement.RootPart.Position - lastPos).Magnitude
             if moved < 0.2 then
                 stuckTime = stuckTime + 0.1
                 if stuckTime > 0.3 then
-                    -- Застряли при подходе — прыгаем сразу отсюда
                     Movement.Log("🦘 Прыгаю сразу (не могу подойти)")
                     break
                 end
@@ -145,30 +128,20 @@ function Movement.ExecuteJump(startNode, landNode)
         end
     end
     
-    -- Фаза 2: Выполняем прыжок
-    -- Сначала направляемся к цели
     Movement.Humanoid:MoveTo(landPos)
     task.wait(0.1)
     
-    -- Прыгаем
     Movement.Log("🦘 Прыжок!")
-    local jumped = Movement.DoJump()
+    Movement.DoJump()
     
-    if not jumped then
-        Movement.Log("⚠️ Не удалось прыгнуть")
-    end
-    
-    -- Фаза 3: Полёт — продолжаем двигаться к цели
     local flightStart = tick()
     local maxFlightTime = 2.5
     
     while tick() - flightStart < maxFlightTime do
         if not Movement.IsActive() or Movement.Humanoid.Health <= 0 then return false end
         
-        -- Продолжаем направляться к цели
         Movement.Humanoid:MoveTo(landPos)
         
-        -- Проверяем приземление (после небольшой задержки)
         if tick() - flightStart > 0.2 and Movement.IsOnGround() then
             break
         end
@@ -176,17 +149,14 @@ function Movement.ExecuteJump(startNode, landNode)
         task.wait(0.05)
     end
     
-    -- Небольшая пауза после приземления
     task.wait(0.15)
     
-    -- Проверяем успех
-    local distToLand = (landPos - Movement.RootPart.Position).Magnitude
     local horizontalDist = Vector2.new(
         landPos.X - Movement.RootPart.Position.X,
         landPos.Z - Movement.RootPart.Position.Z
     ).Magnitude
     
-    local success = horizontalDist < 8 or distToLand < 10
+    local success = horizontalDist < 8
     
     if success and Movement.Memory then
         Movement.Memory.AddSafeZone(Movement.RootPart.Position)
@@ -195,7 +165,6 @@ function Movement.ExecuteJump(startNode, landNode)
     return success
 end
 
--- Ходьба с автоматическими прыжками через препятствия
 function Movement.ExecuteWalk(node)
     if not Movement.Humanoid or not Movement.RootPart then return false end
     
@@ -214,11 +183,9 @@ function Movement.ExecuteWalk(node)
     while tick() - startTime < 10 do
         if not Movement.IsActive() or Movement.Humanoid.Health <= 0 then return false end
         
-        -- Вычисляем расстояние
         local diff = targetPos - Movement.RootPart.Position
         local horizontalDist = Vector2.new(diff.X, diff.Z).Magnitude
         
-        -- Достигли цели
         if horizontalDist < 2.5 then
             if Movement.Memory then
                 Movement.Memory.AddSafeZone(Movement.RootPart.Position)
@@ -226,7 +193,6 @@ function Movement.ExecuteWalk(node)
             return true
         end
         
-        -- Направление к цели
         local horizontalDir = Vector3.new(diff.X, 0, diff.Z)
         if horizontalDir.Magnitude > 0.1 then
             horizontalDir = horizontalDir.Unit
@@ -234,20 +200,17 @@ function Movement.ExecuteWalk(node)
         
         local canJump = (tick() - lastJumpTime) > jumpCooldown and Movement.IsOnGround()
         
-        -- КЛЮЧЕВОЕ: Проверяем стену ВПЕРЕДИ
         local wall = checkWallAhead(Movement.RootPart.Position, horizontalDir, 2.5)
         
         if wall and wall.distance < 2.0 and wall.height > 0.5 and wall.height <= 7.5 then
             if canJump then
                 Movement.Log(string.format("🦘 Стена %.1fм — прыгаю!", wall.height))
                 
-                -- Направляемся к цели и прыгаем
                 Movement.Humanoid:MoveTo(targetPos)
                 task.wait(0.05)
                 Movement.DoJump()
                 lastJumpTime = tick()
                 
-                -- Ждём пока прыжок выполнится
                 Movement.WaitForLanding(2)
                 stuckTime = 0
                 
@@ -255,15 +218,12 @@ function Movement.ExecuteWalk(node)
             end
         end
         
-        -- Проверка застревания
         local moved = (Movement.RootPart.Position - lastPos).Magnitude
         
         if moved < 0.2 then
             stuckTime = stuckTime + 0.1
             
-            -- Застряли
             if stuckTime > 0.25 and canJump then
-                -- Проверяем есть ли стена совсем рядом
                 local nearWall = checkWallAhead(Movement.RootPart.Position, horizontalDir, 1.5)
                 
                 if nearWall then
@@ -287,17 +247,14 @@ function Movement.ExecuteWalk(node)
             lastPos = Movement.RootPart.Position
         end
         
-        -- Продолжаем движение
         Movement.Humanoid:MoveTo(targetPos)
         task.wait(0.1)
     end
     
-    -- Таймаут — проверяем частичный успех
     local finalDist = (targetPos - Movement.RootPart.Position).Magnitude
     return finalDist < 5
 end
 
--- Выполнить весь путь
 function Movement.ExecutePath(path, onProgress)
     local i = 1
     
@@ -314,14 +271,12 @@ function Movement.ExecutePath(path, onProgress)
         local success = false
         
         if node.type == "jump_start" and i < #path then
-            -- Прыжок: две точки (старт + приземление)
             local landNode = path[i + 1]
             success = Movement.ExecuteJump(node, landNode)
             
             if success then
-                i = i + 2  -- Пропускаем jump_land
+                i = i + 2
             else
-                -- Не удалось — пробуем ещё раз
                 Movement.Log("⚠️ Повторяю прыжок...")
                 task.wait(0.3)
                 success = Movement.ExecuteJump(node, landNode)
@@ -333,10 +288,8 @@ function Movement.ExecutePath(path, onProgress)
                 end
             end
         elseif node.type == "jump_land" then
-            -- Уже обработано в jump_start
             i = i + 1
         else
-            -- Обычная ходьба
             success = Movement.ExecuteWalk(node)
             
             if success then
@@ -350,6 +303,6 @@ function Movement.ExecutePath(path, onProgress)
     return true, #path
 end
 
-print("✅ [ObbyBot] " .. Movement.NAME .. " v" .. Movement.VERSION .. " загружен")
+print("[ObbyBot] Movement v" .. Movement.VERSION .. " loaded")
 
 return Movement
