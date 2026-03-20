@@ -363,4 +363,6 @@ function PathBuilder.BuildPath(startPos, targetPos)
     return path
 end
 
+print("✅ [ObbyBot] " .. PathBuilder.NAME .. " v" .. PathBuilder.VERSION .. " загружен")
+
 return PathBuilder
