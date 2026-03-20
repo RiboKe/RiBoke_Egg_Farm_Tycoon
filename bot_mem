@@ -1,0 +1,224 @@
+-- === MEMORY MODULE ===
+-- Сохраняй как: ObbyBot_Memory.lua или вставь в начало основного скрипта
+
+local MemoryModule = {}
+
+local HttpService = game:GetService("HttpService")
+
+-- Данные памяти
+MemoryModule.DeathZones = {}      -- {position, radius, count, killPartName}
+MemoryModule.KillParts = {}        -- Названия kill-частей
+MemoryModule.SafeZones = {}        -- Безопасные точки (успешно пройденные)
+MemoryModule.FileName = "ObbyBot_V16_" .. game.PlaceId .. ".json"
+
+-- Сохранение
+function MemoryModule.Save()
+    if not writefile then return end
+    
+    local data = {
+        DeathZones = {},
+        KillParts = MemoryModule.KillParts,
+        SafeZones = {}
+    }
+    
+    for _, zone in ipairs(MemoryModule.DeathZones) do
+        table.insert(data.DeathZones, {
+            x = zone.position.X,
+            y = zone.position.Y,
+            z = zone.position.Z,
+            radius = zone.radius,
+            count = zone.count,
+            killPart = zone.killPartName
+        })
+    end
+    
+    for _, safe in ipairs(MemoryModule.SafeZones) do
+        table.insert(data.SafeZones, {
+            x = safe.position.X,
+            y = safe.position.Y,
+            z = safe.position.Z
+        })
+    end
+    
+    pcall(function()
+        writefile(MemoryModule.FileName, HttpService:JSONEncode(data))
+    end)
+end
+
+-- Загрузка
+function MemoryModule.Load()
+    if not isfile or not isfile(MemoryModule.FileName) then return end
+    
+    local ok, data = pcall(function()
+        return HttpService:JSONDecode(readfile(MemoryModule.FileName))
+    end)
+    
+    if ok and data then
+        MemoryModule.KillParts = data.KillParts or {}
+        
+        if data.DeathZones then
+            for _, zone in ipairs(data.DeathZones) do
+                table.insert(MemoryModule.DeathZones, {
+                    position = Vector3.new(zone.x, zone.y, zone.z),
+                    radius = zone.radius or 8,
+                    count = zone.count or 1,
+                    killPartName = zone.killPart
+                })
+            end
+        end
+        
+        if data.SafeZones then
+            for _, safe in ipairs(data.SafeZones) do
+                table.insert(MemoryModule.SafeZones, {
+                    position = Vector3.new(safe.x, safe.y, safe.z)
+                })
+            end
+        end
+    end
+end
+
+-- Добавить зону смерти
+function MemoryModule.AddDeathZone(position, killPartName)
+    -- Ищем существующую зону рядом
+    for _, zone in ipairs(MemoryModule.DeathZones) do
+        if (position - zone.position).Magnitude < zone.radius + 5 then
+            zone.count = zone.count + 1
+            -- Радиус растёт с каждой смертью
+            zone.radius = math.min(8 + zone.count * 3, 35)
+            if killPartName then
+                zone.killPartName = killPartName
+            end
+            MemoryModule.Save()
+            return zone.count, zone.radius
+        end
+    end
+    
+    -- Новая зона
+    local newZone = {
+        position = position,
+        radius = 10,  -- Начальный радиус
+        count = 1,
+        killPartName = killPartName
+    }
+    table.insert(MemoryModule.DeathZones, newZone)
+    
+    -- Лимит зон
+    while #MemoryModule.DeathZones > 100 do
+        table.remove(MemoryModule.DeathZones, 1)
+    end
+    
+    MemoryModule.Save()
+    return 1, 10
+end
+
+-- Проверить, находится ли точка в зоне смерти
+function MemoryModule.IsDeathZone(position)
+    for _, zone in ipairs(MemoryModule.DeathZones) do
+        local dist = (position - zone.position).Magnitude
+        if dist < zone.radius then
+            return true, zone
+        end
+    end
+    return false, nil
+end
+
+-- Получить штраф опасности для точки (для выбора пути)
+function MemoryModule.GetDangerScore(position)
+    local score = 0
+    for _, zone in ipairs(MemoryModule.DeathZones) do
+        local dist = (position - zone.position).Magnitude
+        if dist < zone.radius * 1.5 then
+            -- Чем ближе к центру зоны и чем больше смертей — тем выше штраф
+            local proximity = 1 - (dist / (zone.radius * 1.5))
+            score = score + (proximity * zone.count * 10)
+        end
+    end
+    return score
+end
+
+-- Запомнить kill-часть
+function MemoryModule.RememberKillPart(partName)
+    if not partName then return end
+    
+    for _, name in ipairs(MemoryModule.KillParts) do
+        if name == partName then return end
+    end
+    
+    table.insert(MemoryModule.KillParts, partName)
+    MemoryModule.Save()
+end
+
+-- Проверить, является ли часть kill-блоком
+function MemoryModule.IsKillPart(part)
+    if not part then return false end
+    
+    -- Проверяем запомненные
+    for _, name in ipairs(MemoryModule.KillParts) do
+        if part.Name == name then return true end
+    end
+    
+    -- Проверяем по имени
+    local name = part.Name:lower()
+    local dangerWords = {"kill", "lava", "death", "spike", "trap", "damage", "hurt", "die", "fire", "acid"}
+    for _, word in ipairs(dangerWords) do
+        if name:find(word) then return true end
+    end
+    
+    return false
+end
+
+-- Добавить безопасную точку
+function MemoryModule.AddSafeZone(position)
+    -- Проверяем, нет ли уже такой
+    for _, safe in ipairs(MemoryModule.SafeZones) do
+        if (position - safe.position).Magnitude < 5 then
+            return
+        end
+    end
+    
+    table.insert(MemoryModule.SafeZones, {position = position})
+    
+    -- Лимит
+    while #MemoryModule.SafeZones > 200 do
+        table.remove(MemoryModule.SafeZones, 1)
+    end
+end
+
+-- Проверить безопасность пути между двумя точками
+function MemoryModule.IsPathSafe(fromPos, toPos)
+    local dir = toPos - fromPos
+    local dist = dir.Magnitude
+    if dist < 1 then return true end
+    
+    local steps = math.ceil(dist / 3)
+    for i = 1, steps do
+        local t = i / steps
+        local checkPos = fromPos:Lerp(toPos, t)
+        
+        local isDanger, zone = MemoryModule.IsDeathZone(checkPos)
+        if isDanger then
+            return false, zone
+        end
+    end
+    
+    return true, nil
+end
+
+-- Сбросить память
+function MemoryModule.Reset()
+    MemoryModule.DeathZones = {}
+    MemoryModule.KillParts = {}
+    MemoryModule.SafeZones = {}
+    MemoryModule.Save()
+end
+
+-- Получить статистику
+function MemoryModule.GetStats()
+    return {
+        deathZones = #MemoryModule.DeathZones,
+        killParts = #MemoryModule.KillParts,
+        safeZones = #MemoryModule.SafeZones
+    }
+end
+
+return MemoryModule
