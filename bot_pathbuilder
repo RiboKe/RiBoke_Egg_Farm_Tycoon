@@ -1,635 +1,249 @@
--- === PATHBUILDER MODULE v0.20 ===
+-- === PATH BUILDER V0.22 ===
 local PathBuilder = {}
-
-PathBuilder.VERSION = "0.20"
-PathBuilder.NAME = "PathBuilder"
-
-local rayParams = RaycastParams.new()
-rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+PathBuilder.VERSION = "0.22"
 
 PathBuilder.Character = nil
 PathBuilder.Memory = nil
 
--- Память неудачных направлений (сбрасывается при достижении цели)
-PathBuilder.FailedDirections = {}
-PathBuilder.LastPathHash = ""
+-- Настройки
+local RAY_DOWN_DIST = 50
+local MAX_WALK_DIST = 12
+local MAX_JUMP_DIST = 22
+local MAX_JUMP_HEIGHT = 18
+local MIN_PLATFORM_SIZE = 1
+local WALK_POINT_SPACING = 4
 
-function PathBuilder.ResetFailedDirections()
-    PathBuilder.FailedDirections = {}
-    PathBuilder.LastPathHash = ""
-end
+local FailedDirections = {}
+local FAILED_DIR_TIMEOUT = 30
 
-function PathBuilder.AddFailedDirection(fromPos, direction)
-    local key = string.format("%.0f,%.0f,%.0f|%.1f,%.1f", 
-        fromPos.X, fromPos.Y, fromPos.Z, 
-        direction.X, direction.Z)
-    PathBuilder.FailedDirections[key] = tick()
-end
-
-function PathBuilder.IsDirectionFailed(fromPos, direction)
-    local key = string.format("%.0f,%.0f,%.0f|%.1f,%.1f", 
-        fromPos.X, fromPos.Y, fromPos.Z, 
-        direction.X, direction.Z)
-    local failTime = PathBuilder.FailedDirections[key]
-    if failTime and (tick() - failTime) < 30 then
-        return true
+-- === ПОИСК ПЛАТФОРМ ===
+local function isValidPlatform(part)
+    if not part or not part:IsA("BasePart") then return false end
+    if not part.CanCollide then return false end
+    if part.Transparency >= 1 then return false end
+    if part.Size.X < MIN_PLATFORM_SIZE and part.Size.Z < MIN_PLATFORM_SIZE then return false end
+    
+    -- Проверяем по имени - не смертельная ли часть
+    if PathBuilder.Memory and PathBuilder.Memory.IsPartDangerous(part.Name) then
+        return false
     end
-    return false
+    
+    return true
 end
 
-function PathBuilder.UpdateRayParams()
-    if PathBuilder.Character then
-        rayParams.FilterDescendantsInstances = {PathBuilder.Character}
-    end
-end
-
-function PathBuilder.Raycast(origin, direction)
-    PathBuilder.UpdateRayParams()
-    return workspace:Raycast(origin, direction, rayParams)
-end
-
-function PathBuilder.FindFloor(pos, maxDist)
-    maxDist = maxDist or 50
-    local ray = PathBuilder.Raycast(pos + Vector3.new(0, 5, 0), Vector3.new(0, -maxDist, 0))
-    if ray then
-        return ray.Position, ray.Instance
+local function getSurfaceY(pos)
+    local ray = Ray.new(pos + Vector3.new(0, 5, 0), Vector3.new(0, -RAY_DOWN_DIST, 0))
+    local char = PathBuilder.Character
+    local hit, hitPos = workspace:FindPartOnRay(ray, char)
+    
+    if hit and isValidPlatform(hit) then
+        return hitPos.Y, hit
     end
     return nil, nil
 end
 
-function PathBuilder.HasFloorBetween(from, to, stepSize)
-    stepSize = stepSize or 2
-    local dir = to - from
-    local dist = dir.Magnitude
-    local steps = math.ceil(dist / stepSize)
-    
-    for i = 1, steps do
-        local t = i / steps
-        local checkPos = from:Lerp(to, t)
-        local floor = PathBuilder.FindFloor(checkPos, 20)
-        if not floor then
-            return false, i
-        end
-    end
-    return true, 0
-end
-
-function PathBuilder.FindWallAhead(fromPos, direction, maxDist)
-    maxDist = maxDist or 10
-    direction = Vector3.new(direction.X, 0, direction.Z)
-    if direction.Magnitude < 0.1 then return nil end
-    direction = direction.Unit
-    
-    for _, height in ipairs({0.5, 1.5, 2.5}) do
-        local origin = fromPos + Vector3.new(0, height, 0)
-        local ray = PathBuilder.Raycast(origin, direction * maxDist)
-        
-        if ray and ray.Instance then
-            local hitTop = ray.Instance.Position.Y + ray.Instance.Size.Y / 2
-            local wallHeight = hitTop - fromPos.Y
-            
-            if wallHeight > 0.8 then
-                return {
-                    position = ray.Position,
-                    part = ray.Instance,
-                    height = wallHeight,
-                    distance = (ray.Position - fromPos).Magnitude
-                }
-            end
-        end
-    end
-    return nil
-end
-
-function PathBuilder.FindPlatformEdge(startPos, direction, maxDist)
-    maxDist = maxDist or 30
-    direction = Vector3.new(direction.X, 0, direction.Z).Unit
-    
-    local lastValidPos = startPos
-    local stepSize = 1
-    
-    for dist = stepSize, maxDist, stepSize do
-        local checkPos = startPos + direction * dist
-        local floor = PathBuilder.FindFloor(checkPos, 15)
-        
-        if not floor then
-            return lastValidPos, dist - stepSize
-        end
-        
-        if math.abs(floor.Y - lastValidPos.Y) > 5 then
-            return lastValidPos, dist - stepSize
-        end
-        
-        lastValidPos = floor + Vector3.new(0, 3, 0)
-    end
-    
-    return lastValidPos, maxDist
-end
-
-function PathBuilder.IsPointDangerous(pos)
+local function isPositionSafe(pos)
+    -- Проверяем через новую систему Memory
     if PathBuilder.Memory then
-        local isDeath = PathBuilder.Memory.IsDeathZone(pos)
-        if isDeath then
-            return true, "death_zone"
+        local dangerous, partName = PathBuilder.Memory.IsPositionDangerous(pos)
+        if dangerous then
+            return false, partName
         end
     end
     
-    local floor, floorPart = PathBuilder.FindFloor(pos, 10)
-    if floorPart and PathBuilder.Memory then
-        if PathBuilder.Memory.IsKillPart(floorPart) then
-            return true, "kill_part"
-        end
-    end
+    local y, platform = getSurfaceY(pos)
+    if not y then return false, "no_ground" end
     
-    return false, nil
+    return true, platform
 end
 
-function PathBuilder.FindSafeJumpLanding(fromPos, direction, minDist, maxDist)
-    direction = Vector3.new(direction.X, 0, direction.Z).Unit
+-- === СКАНИРОВАНИЕ ВОКРУГ ===
+local function scanPlatformsAround(centerPos, radius, targetPos)
+    local platforms = {}
+    local stepSize = 3
     
-    for jumpDist = minDist, maxDist, 2 do
-        for _, sideOffset in ipairs({0, -3, 3, -6, 6}) do
-            local sideDir = Vector3.new(-direction.Z, 0, direction.X)
-            local checkPos = fromPos + direction * jumpDist + sideDir * sideOffset
-            
-            for _, heightOffset in ipairs({0, 3, 6, -3, -6}) do
-                local floor, floorPart = PathBuilder.FindFloor(checkPos + Vector3.new(0, heightOffset, 0), 20)
-                
-                if floor then
-                    local landingPos = floor + Vector3.new(0, 3, 0)
-                    
-                    local isDangerous = PathBuilder.IsPointDangerous(landingPos)
-                    if not isDangerous then
-                        local jumpHeight = floor.Y - fromPos.Y
-                        local horizontalDist = Vector2.new(
-                            floor.X - fromPos.X,
-                            floor.Z - fromPos.Z
-                        ).Magnitude
-                        
-                        if jumpHeight <= 7 and jumpHeight >= -15 and horizontalDist <= 15 then
-                            return landingPos, floorPart
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    return nil, nil
-end
-
--- НОВОЕ: Поиск обходного пути сбоку
-function PathBuilder.FindBypassRoute(fromPos, blockedDirection, targetPos)
-    local results = {}
-    
-    -- Направления: лево и право
-    local leftDir = Vector3.new(-blockedDirection.Z, 0, blockedDirection.X).Unit
-    local rightDir = Vector3.new(blockedDirection.Z, 0, -blockedDirection.X).Unit
-    
-    for _, sideData in ipairs({{dir = leftDir, name = "left"}, {dir = rightDir, name = "right"}}) do
-        local sideDir = sideData.dir
-        
-        -- Проверяем на разных дистанциях
-        for sideDist = 4, 20, 4 do
-            local sidePos = fromPos + sideDir * sideDist
-            
-            -- Есть ли пол?
-            local floor = PathBuilder.FindFloor(sidePos, 20)
-            if floor then
-                local bypassPos = floor + Vector3.new(0, 3, 0)
-                
-                -- Безопасна ли точка?
-                if not PathBuilder.IsPointDangerous(bypassPos) then
-                    -- Можно ли туда пройти? (нет стены между)
-                    local wallToSide = PathBuilder.FindWallAhead(fromPos, sideDir, sideDist + 1)
-                    local canReach = not wallToSide or wallToSide.distance > sideDist - 1
-                    
-                    if canReach then
-                        -- Есть ли пол между нами и этой точкой?
-                        local hasFloor = PathBuilder.HasFloorBetween(fromPos, bypassPos, 2)
-                        
-                        if hasFloor then
-                            -- Можно ли оттуда идти к цели?
-                            local dirToTarget = (targetPos - bypassPos)
-                            local distToTarget = dirToTarget.Magnitude
-                            
-                            if distToTarget > 1 then
-                                dirToTarget = Vector3.new(dirToTarget.X, 0, dirToTarget.Z).Unit
-                                
-                                -- Проверяем нет ли стены к цели
-                                local wallToTarget = PathBuilder.FindWallAhead(bypassPos, dirToTarget, 8)
-                                
-                                local score = 100
-                                
-                                -- Бонус если нет стены к цели
-                                if not wallToTarget then
-                                    score = score + 30
-                                end
-                                
-                                -- Бонус за близость к цели
-                                local currentDist = (targetPos - fromPos).Magnitude
-                                local newDist = (targetPos - bypassPos).Magnitude
-                                if newDist < currentDist then
-                                    score = score + 20
-                                end
-                                
-                                -- Штраф за дальность обхода
-                                score = score - sideDist * 2
-                                
-                                -- Штраф если это направление уже проваливалось
-                                if PathBuilder.IsDirectionFailed(fromPos, sideDir) then
-                                    score = score - 50
-                                end
-                                
-                                table.insert(results, {
-                                    position = bypassPos,
-                                    side = sideData.name,
-                                    distance = sideDist,
-                                    score = score,
-                                    needsJump = false
-                                })
-                            end
-                        else
-                            -- Нет пола — может нужен прыжок?
-                            local edgePos, edgeDist = PathBuilder.FindPlatformEdge(fromPos, sideDir, sideDist)
-                            
-                            if edgeDist > 2 and edgeDist < sideDist then
-                                -- Есть край — можно прыгнуть
-                                local jumpLanding = PathBuilder.FindSafeJumpLanding(edgePos, sideDir, 3, 12)
-                                
-                                if jumpLanding then
-                                    local score = 50
-                                    
-                                    if PathBuilder.IsDirectionFailed(fromPos, sideDir) then
-                                        score = score - 50
-                                    end
-                                    
-                                    table.insert(results, {
-                                        position = jumpLanding,
-                                        side = sideData.name,
-                                        distance = sideDist,
-                                        score = score,
-                                        needsJump = true,
-                                        jumpFrom = edgePos
-                                    })
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    -- Сортируем по score
-    table.sort(results, function(a, b) return a.score > b.score end)
-    
-    return results
-end
-
--- НОВОЕ: Построить путь с учётом альтернатив
-function PathBuilder.BuildPath(startPos, targetPos, forceAlternative)
-    if not targetPos then return {} end
-    
-    local path = {}
-    local currentPos = startPos
-    local targetFloor = PathBuilder.FindFloor(targetPos, 30)
-    
-    if not targetFloor then
-        targetFloor = targetPos
-    end
-    
-    -- Если нужен альтернативный путь — начинаем не прямо к цели
-    local initialAngleOffset = 0
-    if forceAlternative then
-        -- Выбираем случайный угол отклонения
-        local angles = {30, -30, 45, -45, 60, -60, 90, -90}
-        initialAngleOffset = angles[math.random(1, #angles)]
-    end
-    
-    local maxIterations = 50
-    local iteration = 0
-    
-    while iteration < maxIterations do
-        iteration = iteration + 1
-        
-        local distToTarget = (targetFloor - currentPos).Magnitude
-        local horizontalDist = Vector2.new(
-            targetFloor.X - currentPos.X,
-            targetFloor.Z - currentPos.Z
-        ).Magnitude
-        
-        if horizontalDist < 5 then
-            table.insert(path, {
-                position = targetFloor + Vector3.new(0, 3, 0),
-                type = "walk",
-                description = "Цель"
-            })
-            break
-        end
-        
-        local dirToTarget = (targetFloor - currentPos).Unit
-        local horizontalDir = Vector3.new(dirToTarget.X, 0, dirToTarget.Z).Unit
-        
-        -- Применяем начальное отклонение (для альтернативного пути)
-        if iteration == 1 and initialAngleOffset ~= 0 then
-            local angle = math.rad(initialAngleOffset)
-            horizontalDir = Vector3.new(
-                horizontalDir.X * math.cos(angle) - horizontalDir.Z * math.sin(angle),
+    for angle = 0, 360, 15 do
+        for dist = stepSize, radius, stepSize do
+            local rad = math.rad(angle)
+            local checkPos = centerPos + Vector3.new(
+                math.cos(rad) * dist,
                 0,
-                horizontalDir.X * math.sin(angle) + horizontalDir.Z * math.cos(angle)
-            ).Unit
-        end
-        
-        -- Проверяем провалившиеся направления
-        if PathBuilder.IsDirectionFailed(currentPos, horizontalDir) then
-            -- Ищем обход
-            local bypasses = PathBuilder.FindBypassRoute(currentPos, horizontalDir, targetFloor)
-            
-            if #bypasses > 0 then
-                local bypass = bypasses[1]
-                
-                if bypass.needsJump then
-                    table.insert(path, {
-                        position = bypass.jumpFrom,
-                        type = "jump_start",
-                        description = "Обходной прыжок"
-                    })
-                    table.insert(path, {
-                        position = bypass.position,
-                        type = "jump_land",
-                        description = "Приземление"
-                    })
-                else
-                    table.insert(path, {
-                        position = bypass.position,
-                        type = "walk",
-                        description = string.format("Обход %s", bypass.side == "left" and "слева" or "справа")
-                    })
-                end
-                
-                currentPos = bypass.position
-                continue
-            end
-        end
-        
-        -- Проверяем стену
-        local wall = PathBuilder.FindWallAhead(currentPos, horizontalDir, math.min(horizontalDist, 15))
-        
-        if wall and wall.distance < 4 then
-            -- Есть стена — ищем обход или прыжок
-            local bypasses = PathBuilder.FindBypassRoute(currentPos, horizontalDir, targetFloor)
-            
-            if #bypasses > 0 and bypasses[1].score > 30 then
-                -- Есть хороший обход
-                local bypass = bypasses[1]
-                
-                if bypass.needsJump then
-                    table.insert(path, {
-                        position = bypass.jumpFrom,
-                        type = "jump_start",
-                        description = "Обходной прыжок"
-                    })
-                    table.insert(path, {
-                        position = bypass.position,
-                        type = "jump_land",
-                        description = "Приземление"
-                    })
-                else
-                    table.insert(path, {
-                        position = bypass.position,
-                        type = "walk",
-                        description = string.format("Обход %s", bypass.side == "left" and "слева" or "справа")
-                    })
-                end
-                
-                currentPos = bypass.position
-                continue
-            elseif wall.height <= 7 then
-                -- Нет хорошего обхода, но можно прыгнуть
-                local wallTop = PathBuilder.FindFloor(
-                    wall.part.Position + Vector3.new(0, wall.part.Size.Y/2 + 5, 0), 10
-                )
-                
-                local landingPos
-                if wallTop then
-                    landingPos = wallTop + Vector3.new(0, 3, 0)
-                else
-                    landingPos = wall.position + Vector3.new(0, wall.height + 1, 0)
-                end
-                
-                local isDangerous = PathBuilder.IsPointDangerous(landingPos)
-                
-                if isDangerous then
-                    local safeLanding = PathBuilder.FindSafeJumpLanding(currentPos, horizontalDir, 5, 15)
-                    if safeLanding then
-                        landingPos = safeLanding
-                    else
-                        -- Не можем прыгнуть безопасно — ищем любой обход
-                        if #bypasses > 0 then
-                            local bypass = bypasses[1]
-                            if bypass.needsJump then
-                                table.insert(path, {
-                                    position = bypass.jumpFrom,
-                                    type = "jump_start",
-                                    description = "Вынужденный обходной прыжок"
-                                })
-                                table.insert(path, {
-                                    position = bypass.position,
-                                    type = "jump_land",
-                                    description = "Приземление"
-                                })
-                            else
-                                table.insert(path, {
-                                    position = bypass.position,
-                                    type = "walk",
-                                    description = "Вынужденный обход"
-                                })
-                            end
-                            currentPos = bypass.position
-                            continue
-                        else
-                            break
-                        end
-                    end
-                end
-                
-                table.insert(path, {
-                    position = currentPos,
-                    type = "jump_start",
-                    description = string.format("Прыжок на стену (%.1fм)", wall.height)
-                })
-                
-                table.insert(path, {
-                    position = landingPos,
-                    type = "jump_land",
-                    description = "Приземление"
-                })
-                
-                currentPos = landingPos
-            else
-                -- Стена слишком высокая и нет обхода
-                break
-            end
-        else
-            -- Нет стены — проверяем пол
-            local nextCheckDist = math.min(horizontalDist, 12)
-            local hasFloor = PathBuilder.HasFloorBetween(
-                currentPos, 
-                currentPos + horizontalDir * nextCheckDist, 
-                2
+                math.sin(rad) * dist
             )
             
-            if not hasFloor then
-                -- Пропасть — ищем куда прыгнуть
-                local edgePos, edgeDist = PathBuilder.FindPlatformEdge(currentPos, horizontalDir, 15)
-                
-                local landingPos = PathBuilder.FindSafeJumpLanding(
-                    currentPos, 
-                    horizontalDir, 
-                    edgeDist + 3, 
-                    edgeDist + 15
-                )
-                
-                if landingPos then
-                    table.insert(path, {
-                        position = edgePos,
-                        type = "jump_start",
-                        description = "Прыжок через пропасть"
-                    })
+            local safe, platform = isPositionSafe(checkPos)
+            if safe and platform then
+                local surfaceY = getSurfaceY(checkPos)
+                if surfaceY then
+                    local platformPos = Vector3.new(checkPos.X, surfaceY + 3, checkPos.Z)
+                    local distToTarget = (platformPos - targetPos).Magnitude
                     
-                    table.insert(path, {
-                        position = landingPos,
-                        type = "jump_land",
-                        description = "Приземление"
-                    })
+                    -- Проверяем, что эта платформа не в "провальном" направлении
+                    local dirToPlat = (platformPos - centerPos).Unit
+                    local isFailedDir = false
                     
-                    currentPos = landingPos
-                else
-                    -- Не можем прыгнуть прямо — ищем обход
-                    local bypasses = PathBuilder.FindBypassRoute(currentPos, horizontalDir, targetFloor)
-                    
-                    if #bypasses > 0 then
-                        local bypass = bypasses[1]
-                        
-                        if bypass.needsJump then
-                            table.insert(path, {
-                                position = bypass.jumpFrom,
-                                type = "jump_start",
-                                description = "Обходной прыжок через пропасть"
-                            })
-                            table.insert(path, {
-                                position = bypass.position,
-                                type = "jump_land",
-                                description = "Приземление"
-                            })
-                        else
-                            table.insert(path, {
-                                position = bypass.position,
-                                type = "walk",
-                                description = "Обход пропасти"
-                            })
-                        end
-                        
-                        currentPos = bypass.position
-                    else
-                        break
-                    end
-                end
-            else
-                -- Есть пол — идём
-                local walkDist = math.min(horizontalDist, 8)
-                local nextPos = currentPos + horizontalDir * walkDist
-                local nextFloor, nextFloorPart = PathBuilder.FindFloor(nextPos, 15)
-                
-                if nextFloor then
-                    local landingPos = nextFloor + Vector3.new(0, 3, 0)
-                    
-                    local isDangerous = PathBuilder.IsPointDangerous(landingPos)
-                    
-                    if isDangerous then
-                        local safeLanding = PathBuilder.FindSafeJumpLanding(currentPos, horizontalDir, 5, 15)
-                        
-                        if safeLanding then
-                            table.insert(path, {
-                                position = currentPos,
-                                type = "jump_start",
-                                description = "Прыжок через опасность"
-                            })
-                            
-                            table.insert(path, {
-                                position = safeLanding,
-                                type = "jump_land",
-                                description = "Приземление"
-                            })
-                            
-                            currentPos = safeLanding
-                        else
-                            -- Ищем обход опасности
-                            local bypasses = PathBuilder.FindBypassRoute(currentPos, horizontalDir, targetFloor)
-                            
-                            if #bypasses > 0 then
-                                local bypass = bypasses[1]
-                                table.insert(path, {
-                                    position = bypass.position,
-                                    type = bypass.needsJump and "jump_land" or "walk",
-                                    description = "Обход опасности"
-                                })
-                                currentPos = bypass.position
-                            else
+                    for _, fd in ipairs(FailedDirections) do
+                        if tick() - fd.time < FAILED_DIR_TIMEOUT then
+                            local dot = dirToPlat:Dot(fd.direction)
+                            if dot > 0.8 then
+                                isFailedDir = true
                                 break
                             end
                         end
-                    else
-                        local heightDiff = nextFloor.Y - (currentPos.Y - 3)
-                        
-                        if heightDiff > 2 then
-                            table.insert(path, {
-                                position = currentPos,
-                                type = "jump_start",
-                                description = string.format("Подъём (%.1fм)", heightDiff)
-                            })
-                            
-                            table.insert(path, {
-                                position = landingPos,
-                                type = "jump_land",
-                                description = "Приземление"
-                            })
-                        else
-                            table.insert(path, {
-                                position = landingPos,
-                                type = "walk",
-                                description = "Ходьба"
-                            })
-                        end
-                        
-                        currentPos = landingPos
                     end
-                else
+                    
+                    if not isFailedDir then
+                        table.insert(platforms, {
+                            position = platformPos,
+                            platform = platform,
+                            distToTarget = distToTarget,
+                            distFromMe = dist
+                        })
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Сортируем: ближе к цели = лучше
+    table.sort(platforms, function(a, b)
+        return a.distToTarget < b.distToTarget
+    end)
+    
+    return platforms
+end
+
+-- === ОПРЕДЕЛЕНИЕ ТИПА ПЕРЕМЕЩЕНИЯ ===
+local function getMovementType(fromPos, toPos)
+    local horizontalDist = ((toPos - fromPos) * Vector3.new(1, 0, 1)).Magnitude
+    local verticalDiff = toPos.Y - fromPos.Y
+    
+    -- Ходьба возможна
+    if horizontalDist < MAX_WALK_DIST and math.abs(verticalDiff) < 3 then
+        -- Проверяем путь
+        local ray = Ray.new(fromPos, toPos - fromPos)
+        local hit = workspace:FindPartOnRay(ray, PathBuilder.Character)
+        
+        if not hit or (hit and isValidPlatform(hit)) then
+            return "walk"
+        end
+    end
+    
+    -- Прыжок
+    if horizontalDist < MAX_JUMP_DIST and verticalDiff < MAX_JUMP_HEIGHT and verticalDiff > -MAX_JUMP_HEIGHT then
+        return "jump"
+    end
+    
+    return "impossible"
+end
+
+-- === ПОСТРОЕНИЕ ПУТИ ===
+function PathBuilder.BuildPath(startPos, targetPos, aggressive)
+    local path = {}
+    local currentPos = startPos
+    local visited = {}
+    local maxSteps = 50
+    
+    for step = 1, maxSteps do
+        local dist = (targetPos - currentPos).Magnitude
+        
+        -- Достигли цели
+        if dist < 8 then
+            table.insert(path, {position = targetPos, type = "goal"})
+            return path
+        end
+        
+        -- Сканируем вокруг
+        local scanRadius = aggressive and 25 or 20
+        local platforms = scanPlatformsAround(currentPos, scanRadius, targetPos)
+        
+        if #platforms == 0 then
+            print("[PathBuilder] Нет доступных платформ на шаге " .. step)
+            return path
+        end
+        
+        -- Выбираем лучшую платформу
+        local bestPlatform = nil
+        
+        for _, plat in ipairs(platforms) do
+            local key = PathBuilder.Memory.Vec3ToKey(plat.position)
+            
+            if not visited[key] then
+                local moveType = getMovementType(currentPos, plat.position)
+                
+                if moveType ~= "impossible" then
+                    bestPlatform = plat
+                    bestPlatform.moveType = moveType
                     break
                 end
             end
         end
-    end
-    
-    -- Создаём хеш пути для проверки дубликатов
-    if #path > 0 then
-        local hashParts = {}
-        for i = 1, math.min(3, #path) do
-            local p = path[i].position
-            table.insert(hashParts, string.format("%.0f,%.0f,%.0f", p.X, p.Y, p.Z))
+        
+        if not bestPlatform then
+            -- Пробуем любую непосещённую
+            for _, plat in ipairs(platforms) do
+                local key = PathBuilder.Memory.Vec3ToKey(plat.position)
+                if not visited[key] then
+                    bestPlatform = plat
+                    bestPlatform.moveType = "jump"
+                    break
+                end
+            end
         end
-        PathBuilder.LastPathHash = table.concat(hashParts, "|")
+        
+        if not bestPlatform then
+            print("[PathBuilder] Все платформы посещены")
+            return path
+        end
+        
+        -- Добавляем в путь
+        visited[PathBuilder.Memory.Vec3ToKey(bestPlatform.position)] = true
+        
+        if bestPlatform.moveType == "jump" then
+            table.insert(path, {position = currentPos, type = "jump_start"})
+            table.insert(path, {position = bestPlatform.position, type = "jump_land"})
+        else
+            table.insert(path, {position = bestPlatform.position, type = "walk"})
+        end
+        
+        currentPos = bestPlatform.position
     end
     
     return path
 end
 
--- НОВОЕ: Построить альтернативный путь
 function PathBuilder.BuildAlternativePath(startPos, targetPos)
-    return PathBuilder.BuildPath(startPos, targetPos, true)
+    -- Добавляем случайные "запреты" чтобы найти другой путь
+    local dirToTarget = (targetPos - startPos).Unit
+    
+    -- Запрещаем прямой путь
+    PathBuilder.AddFailedDirection(startPos, dirToTarget)
+    
+    -- Строим путь
+    local path = PathBuilder.BuildPath(startPos, targetPos, true)
+    
+    return path
 end
 
-print("[ObbyBot] PathBuilder v" .. PathBuilder.VERSION .. " loaded")
+function PathBuilder.AddFailedDirection(fromPos, direction)
+    table.insert(FailedDirections, {
+        position = fromPos,
+        direction = direction,
+        time = tick()
+    })
+    
+    -- Очистка старых
+    local newList = {}
+    for _, fd in ipairs(FailedDirections) do
+        if tick() - fd.time < FAILED_DIR_TIMEOUT then
+            table.insert(newList, fd)
+        end
+    end
+    FailedDirections = newList
+end
+
+function PathBuilder.ResetFailedDirections()
+    FailedDirections = {}
+end
 
 return PathBuilder
